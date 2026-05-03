@@ -25,8 +25,8 @@ final class VerseListSyncCoordinator: ObservableObject {
         isSyncing = true
 
         do {
-            let remoteBundles = try await service.fetchLists(for: userID)
-            try reconcile(remoteBundles: remoteBundles, userID: userID, modelContext: modelContext)
+            let remoteLists = try await service.fetchLists(for: userID)
+            try reconcile(remoteLists: remoteLists, userID: userID, modelContext: modelContext)
             try await uploadPendingLists(for: userID, modelContext: modelContext)
             try await uploadPendingItems(for: userID, modelContext: modelContext)
         } catch {}
@@ -65,6 +65,31 @@ final class VerseListSyncCoordinator: ObservableObject {
         } catch {}
     }
 
+    func syncItemsForList(listID: UUID, userID: String?, modelContext: ModelContext) async {
+        guard let userID = validatedCurrentUserID(for: userID) else { return }
+        guard activeUserId == userID else { return }
+
+        do {
+            guard let list = try fetchAllLists(modelContext: modelContext).first(where: { $0.id == listID }) else {
+                return
+            }
+            guard list.ownerUserId == userID, let remoteDocumentId = list.remoteDocumentId else { return }
+
+            let remoteItems = try await service.fetchItems(
+                userId: userID,
+                listRemoteId: remoteDocumentId,
+                localListId: list.id
+            )
+            try reconcileItems(
+                remoteItems: remoteItems,
+                list: list,
+                userID: userID,
+                modelContext: modelContext
+            )
+            try await uploadPendingItems(for: userID, listID: list.id, modelContext: modelContext)
+        } catch {}
+    }
+
     func stopSync() {
         activeUserId = nil
         isSyncing = false
@@ -82,15 +107,12 @@ final class VerseListSyncCoordinator: ObservableObject {
     }
 
     private func reconcile(
-        remoteBundles: [RemoteVerseListBundle],
+        remoteLists: [MyVerseList],
         userID: String,
         modelContext: ModelContext
     ) throws {
         let localLists = try fetchAllLists(modelContext: modelContext).filter { list in
             list.ownerUserId == userID || list.ownerUserId.isEmpty
-        }
-        let localItems = try fetchAllItems(modelContext: modelContext).filter { item in
-            item.ownerUserId == userID || item.ownerUserId.isEmpty
         }
 
         var localListsByRemoteDocumentId: [String: MyVerseList] = [:]
@@ -105,30 +127,14 @@ final class VerseListSyncCoordinator: ObservableObject {
             localListsByDuplicateKey[listDuplicateKey(for: list, userID: list.ownerUserId.isEmpty ? userID : list.ownerUserId)] = list
         }
 
-        var localItemsByRemoteDocumentId: [String: MyVerseListItem] = [:]
-        var localItemsByLocalId: [UUID: MyVerseListItem] = [:]
-        var localItemsByDuplicateKey: [String: MyVerseListItem] = [:]
-
-        for item in localItems {
-            if let remoteDocumentId = item.remoteDocumentId {
-                localItemsByRemoteDocumentId[remoteDocumentId] = item
-            }
-            localItemsByLocalId[item.id] = item
-            localItemsByDuplicateKey[itemDuplicateKey(for: item, userID: item.ownerUserId.isEmpty ? userID : item.ownerUserId)] = item
-        }
-
         var didChange = false
 
-        for bundle in remoteBundles {
-            let remoteList = bundle.list
+        for remoteList in remoteLists {
             guard let remoteListDocumentId = remoteList.remoteDocumentId else { continue }
 
-            let localList: MyVerseList
             if let existing = localListsByRemoteDocumentId[remoteListDocumentId] {
-                localList = existing
                 didChange = merge(remote: remoteList, into: existing, userID: userID) || didChange
             } else if let existing = localListsByLocalId[remoteList.id] {
-                localList = existing
                 if existing.remoteDocumentId == nil {
                     existing.remoteDocumentId = remoteListDocumentId
                     existing.lastSyncedAt = Date()
@@ -141,7 +147,6 @@ final class VerseListSyncCoordinator: ObservableObject {
             } else {
                 let remoteKey = listDuplicateKey(for: remoteList, userID: userID)
                 if let existing = localListsByDuplicateKey[remoteKey] {
-                    localList = existing
                     if existing.remoteDocumentId == nil {
                         existing.remoteDocumentId = remoteListDocumentId
                         existing.lastSyncedAt = Date()
@@ -166,85 +171,91 @@ final class VerseListSyncCoordinator: ObservableObject {
                     localListsByRemoteDocumentId[remoteListDocumentId] = newList
                     localListsByLocalId[newList.id] = newList
                     localListsByDuplicateKey[listDuplicateKey(for: newList, userID: userID)] = newList
-                    localList = newList
                     didChange = true
                 }
             }
+        }
 
-            localListsByRemoteDocumentId[remoteListDocumentId] = localList
-            localListsByLocalId[localList.id] = localList
-            localListsByDuplicateKey[listDuplicateKey(for: localList, userID: userID)] = localList
+        if didChange {
+            try modelContext.save()
+        }
+    }
 
-            for remoteItem in bundle.items {
-                let normalizedRemoteItem = MyVerseListItem(
-                    id: remoteItem.id,
-                    listId: localList.id,
-                    book: remoteItem.book,
-                    chapter: remoteItem.chapter,
-                    verse: remoteItem.verse,
-                    ownerUserId: userID,
-                    remoteDocumentId: remoteItem.remoteDocumentId,
-                    updatedAt: remoteItem.updatedAt,
-                    lastSyncedAt: remoteItem.lastSyncedAt,
-                    createdAt: remoteItem.createdAt
-                )
+    private func reconcileItems(
+        remoteItems: [MyVerseListItem],
+        list: MyVerseList,
+        userID: String,
+        modelContext: ModelContext
+    ) throws {
+        let localItems = try fetchAllItems(modelContext: modelContext).filter { item in
+            (item.ownerUserId == userID || item.ownerUserId.isEmpty) && item.listId == list.id
+        }
 
-                guard let remoteItemDocumentId = normalizedRemoteItem.remoteDocumentId else { continue }
+        var localItemsByRemoteDocumentId: [String: MyVerseListItem] = [:]
+        var localItemsByDuplicateKey: [String: MyVerseListItem] = [:]
 
-                if let existing = localItemsByRemoteDocumentId[remoteItemDocumentId] {
-                    didChange = merge(remote: normalizedRemoteItem, into: existing, listId: localList.id, userID: userID) || didChange
-                    continue
-                }
-
-                if let existing = localItemsByLocalId[normalizedRemoteItem.id] {
-                    if existing.remoteDocumentId == nil {
-                        existing.remoteDocumentId = remoteItemDocumentId
-                        existing.lastSyncedAt = Date()
-                        if existing.ownerUserId.isEmpty {
-                            existing.ownerUserId = userID
-                        }
-                        existing.listId = localList.id
-                        didChange = true
-                    }
-                    didChange = merge(remote: normalizedRemoteItem, into: existing, listId: localList.id, userID: userID) || didChange
-                    localItemsByRemoteDocumentId[remoteItemDocumentId] = existing
-                    continue
-                }
-
-                let remoteKey = itemDuplicateKey(for: normalizedRemoteItem, userID: userID)
-                if let existing = localItemsByDuplicateKey[remoteKey] {
-                    if existing.remoteDocumentId == nil {
-                        existing.remoteDocumentId = remoteItemDocumentId
-                        existing.lastSyncedAt = Date()
-                        if existing.ownerUserId.isEmpty {
-                            existing.ownerUserId = userID
-                        }
-                        existing.listId = localList.id
-                        didChange = true
-                    }
-                    didChange = merge(remote: normalizedRemoteItem, into: existing, listId: localList.id, userID: userID) || didChange
-                    localItemsByRemoteDocumentId[remoteItemDocumentId] = existing
-                    continue
-                }
-
-                let newItem = MyVerseListItem(
-                    id: normalizedRemoteItem.id,
-                    listId: localList.id,
-                    book: normalizedRemoteItem.book,
-                    chapter: normalizedRemoteItem.chapter,
-                    verse: normalizedRemoteItem.verse,
-                    ownerUserId: userID,
-                    remoteDocumentId: remoteItemDocumentId,
-                    updatedAt: normalizedRemoteItem.updatedAt,
-                    lastSyncedAt: Date(),
-                    createdAt: normalizedRemoteItem.createdAt
-                )
-                modelContext.insert(newItem)
-                localItemsByRemoteDocumentId[remoteItemDocumentId] = newItem
-                localItemsByLocalId[newItem.id] = newItem
-                localItemsByDuplicateKey[itemDuplicateKey(for: newItem, userID: userID)] = newItem
-                didChange = true
+        for item in localItems {
+            if let remoteDocumentId = item.remoteDocumentId {
+                localItemsByRemoteDocumentId[remoteDocumentId] = item
             }
+            localItemsByDuplicateKey[itemDuplicateKey(for: item, userID: userID)] = item
+        }
+
+        var didChange = false
+
+        for remoteItem in remoteItems {
+            let normalizedRemoteItem = MyVerseListItem(
+                id: remoteItem.id,
+                listId: list.id,
+                book: remoteItem.book,
+                chapter: remoteItem.chapter,
+                verse: remoteItem.verse,
+                ownerUserId: userID,
+                remoteDocumentId: remoteItem.remoteDocumentId,
+                updatedAt: remoteItem.updatedAt,
+                lastSyncedAt: remoteItem.lastSyncedAt,
+                createdAt: remoteItem.createdAt
+            )
+
+            guard let remoteItemDocumentId = normalizedRemoteItem.remoteDocumentId else { continue }
+
+            if let existing = localItemsByRemoteDocumentId[remoteItemDocumentId] {
+                didChange = merge(remote: normalizedRemoteItem, into: existing, listId: list.id, userID: userID) || didChange
+                continue
+            }
+
+            let remoteKey = itemDuplicateKey(for: normalizedRemoteItem, userID: userID)
+            if let existing = localItemsByDuplicateKey[remoteKey] {
+                if existing.remoteDocumentId == nil {
+                    existing.remoteDocumentId = remoteItemDocumentId
+                    existing.lastSyncedAt = Date()
+                    if existing.ownerUserId.isEmpty {
+                        existing.ownerUserId = userID
+                    }
+                    existing.listId = list.id
+                    didChange = true
+                }
+                didChange = merge(remote: normalizedRemoteItem, into: existing, listId: list.id, userID: userID) || didChange
+                localItemsByRemoteDocumentId[remoteItemDocumentId] = existing
+                continue
+            }
+
+            let newItem = MyVerseListItem(
+                id: normalizedRemoteItem.id,
+                listId: list.id,
+                book: normalizedRemoteItem.book,
+                chapter: normalizedRemoteItem.chapter,
+                verse: normalizedRemoteItem.verse,
+                ownerUserId: userID,
+                remoteDocumentId: remoteItemDocumentId,
+                updatedAt: normalizedRemoteItem.updatedAt,
+                lastSyncedAt: Date(),
+                createdAt: normalizedRemoteItem.createdAt
+            )
+            modelContext.insert(newItem)
+            localItemsByRemoteDocumentId[remoteItemDocumentId] = newItem
+            localItemsByDuplicateKey[remoteKey] = newItem
+            didChange = true
         }
 
         if didChange {

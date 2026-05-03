@@ -20,6 +20,7 @@ struct MyVerseListDetailView: View {
     @State private var deletingSelectedItems = false
     @State private var deletingList = false
     @State private var expandedSectionKeys: Set<String> = []
+    @State private var isLoadingRemoteItems = false
 
     private let service = BibleDataService.shared
 
@@ -56,9 +57,13 @@ struct MyVerseListDetailView: View {
                 .disabled(isManagingVerses)
                 .opacity(isManagingVerses ? 0.55 : 1)
 
-                if listItems.isEmpty {
+                if isLoadingRemoteItems && listItems.isEmpty {
+                    ProgressView("구절을 불러오는 중...")
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 32)
+                } else if listItems.isEmpty {
                     ContentUnavailableView(
-                        "아직 담긴 구절이 없습니다",
+                        "아직 저장된 구절이 없습니다.",
                         systemImage: "bookmark",
                         description: Text("구절 추가 버튼을 눌러 리스트를 채워보세요.")
                     )
@@ -168,6 +173,9 @@ struct MyVerseListDetailView: View {
             if isManagingVerses && !listItems.isEmpty {
                 manageBottomBar
             }
+        }
+        .task(id: list.remoteDocumentId) {
+            await fetchRemoteItemsIfNeeded()
         }
     }
 
@@ -461,6 +469,18 @@ struct MyVerseListDetailView: View {
                 )
             }
         }
+    }
+
+    private func fetchRemoteItemsIfNeeded() async {
+        guard authViewModel.currentUser != nil, list.remoteDocumentId != nil else { return }
+
+        isLoadingRemoteItems = true
+        await verseListSyncCoordinator.syncItemsForList(
+            listID: list.id,
+            userID: authViewModel.currentUser?.uid,
+            modelContext: modelContext
+        )
+        isLoadingRemoteItems = false
     }
 
     private var deleteItemAlertBinding: Binding<Bool> {

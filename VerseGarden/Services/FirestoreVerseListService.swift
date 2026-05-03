@@ -2,15 +2,10 @@ import FirebaseAuth
 import FirebaseFirestore
 import Foundation
 
-struct RemoteVerseListBundle {
-    let list: MyVerseList
-    let items: [MyVerseListItem]
-}
-
 struct FirestoreVerseListService {
     private var database: Firestore { Firestore.firestore() }
 
-    func fetchLists(for userID: String) async throws -> [RemoteVerseListBundle] {
+    func fetchLists(for userID: String) async throws -> [MyVerseList] {
         guard let currentUID = Auth.auth().currentUser?.uid,
               !userID.isEmpty,
               currentUID == userID else {
@@ -33,14 +28,9 @@ struct FirestoreVerseListService {
                 }
         }
 
-        var bundles: [RemoteVerseListBundle] = []
-        for document in listSnapshot.documents {
-            guard let remoteList = makeList(from: document, userID: userID) else { continue }
-            let items = try await fetchItems(for: userID, listRemoteDocumentId: document.documentID, localListId: remoteList.id)
-            bundles.append(RemoteVerseListBundle(list: remoteList, items: items))
+        return listSnapshot.documents.compactMap { document in
+            makeList(from: document, userID: userID)
         }
-
-        return bundles
     }
 
     func createList(from list: MyVerseList, for userID: String) async throws -> String {
@@ -131,13 +121,20 @@ struct FirestoreVerseListService {
         return reference.documentID
     }
 
-    private func fetchItems(for userID: String, listRemoteDocumentId: String, localListId: UUID) async throws -> [MyVerseListItem] {
+    func fetchItems(userId: String, listRemoteId: String, localListId: UUID) async throws -> [MyVerseListItem] {
+        guard let currentUID = Auth.auth().currentUser?.uid,
+              !userId.isEmpty,
+              !listRemoteId.isEmpty,
+              currentUID == userId else {
+            throw FirestoreSyncError.notAuthenticated
+        }
+
         let snapshot = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<QuerySnapshot, Error>) in
             database
                 .collection("users")
-                .document(userID)
+                .document(userId)
                 .collection("verseLists")
-                .document(listRemoteDocumentId)
+                .document(listRemoteId)
                 .collection("items")
                 .getDocuments { snapshot, error in
                     if let error {
@@ -167,7 +164,7 @@ struct FirestoreVerseListService {
                 book: book,
                 chapter: chapter,
                 verse: verse,
-                ownerUserId: (data["ownerUserId"] as? String) ?? userID,
+                ownerUserId: (data["ownerUserId"] as? String) ?? userId,
                 remoteDocumentId: document.documentID,
                 updatedAt: updatedAtTimestamp.dateValue(),
                 lastSyncedAt: (data["lastSyncedAt"] as? Timestamp)?.dateValue() ?? Date(),
