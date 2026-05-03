@@ -74,7 +74,7 @@ private struct AppRootView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color(.systemGroupedBackground))
             } else if authViewModel.isLoggedIn {
-                RootTabView()
+                authenticatedContent
             } else {
                 AuthView()
             }
@@ -95,6 +95,19 @@ private struct AppRootView: View {
                 syncCoordinator.stopSync()
                 verseListSyncCoordinator.stopSync()
             }
+        }
+    }
+
+    @ViewBuilder
+    private var authenticatedContent: some View {
+        if !userProfileStore.hasResolvedProfile(for: authViewModel.currentUser?.uid) || userProfileStore.isLoadingProfile {
+            ProgressView("프로필 정보를 불러오는 중...")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(.systemGroupedBackground))
+        } else if userProfileStore.requiresNicknameSetup {
+            NicknameSetupView()
+        } else {
+            RootTabView()
         }
     }
 }

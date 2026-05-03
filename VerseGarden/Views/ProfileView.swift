@@ -130,7 +130,7 @@ struct ProfileView: View {
                                         .clipShape(Capsule())
                                 }
                                 .buttonStyle(.plain)
-                                .disabled(userProfileStore.isSaving || draftNickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                .disabled(userProfileStore.isSaving || draftNickname.trimmingCharacters(in: .whitespacesAndNewlines).count < 2)
                             }
                         }
                     } else {

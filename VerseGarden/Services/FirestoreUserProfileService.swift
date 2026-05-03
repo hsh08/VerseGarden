@@ -18,20 +18,18 @@ struct FirestoreUserProfileService {
             return profile
         }
 
-        let nickname = defaultNickname(for: user)
         let data: [String: Any] = [
             "email": user.email ?? "",
-            "nickname": nickname,
+            "nickname": "",
             "createdAt": FieldValue.serverTimestamp(),
             "updatedAt": FieldValue.serverTimestamp()
         ]
 
         try await setData(document, data: data, merge: true)
-        try await syncDisplayNameIfNeeded(nickname: nickname, for: user)
 
         let createdSnapshot = try await getDocument(document)
         return profile(from: createdSnapshot, fallbackUser: user)
-            ?? UserProfile(id: userID, email: user.email ?? "", nickname: nickname, createdAt: Date(), updatedAt: Date())
+            ?? UserProfile(id: userID, email: user.email ?? "", nickname: "", createdAt: Date(), updatedAt: Date())
     }
 
     func updateNickname(_ nickname: String, for user: User) async throws -> UserProfile {
@@ -56,30 +54,18 @@ struct FirestoreUserProfileService {
             ?? UserProfile(id: userID, email: user.email ?? "", nickname: trimmedNickname, createdAt: Date(), updatedAt: Date())
     }
 
-    private func defaultNickname(for user: User) -> String {
-        if let displayName = user.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !displayName.isEmpty {
-            return displayName
-        }
-
-        if let localPart = user.email?.split(separator: "@").first, !localPart.isEmpty {
-            return String(localPart)
-        }
-
-        return "VerseGarden 사용자"
-    }
-
     private func profile(from snapshot: DocumentSnapshot, fallbackUser: User) -> UserProfile? {
         guard let data = snapshot.data() else { return nil }
 
         let createdAt = (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
         let updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue() ?? createdAt
-        let nickname = (data["nickname"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nickname = ((data["nickname"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let email = (data["email"] as? String) ?? fallbackUser.email ?? ""
 
         return UserProfile(
             id: snapshot.documentID,
             email: email,
-            nickname: (nickname?.isEmpty == false ? nickname! : defaultNickname(for: fallbackUser)),
+            nickname: nickname,
             createdAt: createdAt,
             updatedAt: updatedAt
         )
