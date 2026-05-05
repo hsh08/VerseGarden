@@ -65,6 +65,79 @@ final class VerseListSyncCoordinator: ObservableObject {
         } catch {}
     }
 
+    func updateListIfNeeded(localListID: UUID, userID: String?, modelContext: ModelContext) async {
+        guard let userID = validatedCurrentUserID(for: userID) else { return }
+        guard activeUserId == userID else { return }
+
+        do {
+            guard let list = try fetchAllLists(modelContext: modelContext).first(where: { $0.id == localListID }) else {
+                return
+            }
+            guard list.ownerUserId == userID, let remoteDocumentId = list.remoteDocumentId, !remoteDocumentId.isEmpty else { return }
+
+            try await service.updateList(
+                listRemoteId: remoteDocumentId,
+                title: list.title,
+                memo: list.memo,
+                for: userID
+            )
+            list.lastSyncedAt = Date()
+            try modelContext.save()
+        } catch {}
+    }
+
+    func deleteListIfNeeded(localListID: UUID, userID: String?, modelContext: ModelContext) async {
+        guard let userID = validatedCurrentUserID(for: userID) else { return }
+
+        do {
+            guard let list = try fetchAllLists(modelContext: modelContext).first(where: { $0.id == localListID }) else {
+                return
+            }
+            guard list.ownerUserId == userID else { return }
+
+            let resolvedRemoteDocumentId = try await resolveRemoteDocumentIdIfNeeded(for: list, userID: userID, modelContext: modelContext)
+
+            if let resolvedRemoteDocumentId, !resolvedRemoteDocumentId.isEmpty {
+                try await service.deleteList(listRemoteId: resolvedRemoteDocumentId, for: userID)
+            }
+
+            let items = try fetchAllItems(modelContext: modelContext).filter { $0.listId == list.id }
+            for item in items {
+                modelContext.delete(item)
+            }
+            modelContext.delete(list)
+            try modelContext.save()
+        } catch {}
+    }
+
+    func deleteItemIfNeeded(localItemID: UUID, userID: String?, modelContext: ModelContext) async {
+        guard let userID = validatedCurrentUserID(for: userID) else { return }
+
+        do {
+            guard let item = try fetchAllItems(modelContext: modelContext).first(where: { $0.id == localItemID }) else {
+                return
+            }
+            guard item.ownerUserId == userID else { return }
+            guard let list = try fetchAllLists(modelContext: modelContext).first(where: { $0.id == item.listId }) else {
+                return
+            }
+            guard list.ownerUserId == userID else { return }
+
+            let listRemoteDocumentId = try await resolveRemoteDocumentIdIfNeeded(for: list, userID: userID, modelContext: modelContext)
+            let itemRemoteDocumentId = item.remoteDocumentId
+
+            if let listRemoteDocumentId,
+               let itemRemoteDocumentId,
+               !listRemoteDocumentId.isEmpty,
+               !itemRemoteDocumentId.isEmpty {
+                try await service.deleteItem(listId: listRemoteDocumentId, itemId: itemRemoteDocumentId, for: userID)
+            }
+
+            modelContext.delete(item)
+            try modelContext.save()
+        } catch {}
+    }
+
     func syncItemsForList(listID: UUID, userID: String?, modelContext: ModelContext) async {
         guard let userID = validatedCurrentUserID(for: userID) else { return }
         guard activeUserId == userID else { return }
@@ -176,6 +249,21 @@ final class VerseListSyncCoordinator: ObservableObject {
             }
         }
 
+        let remoteDocumentIds = Set(remoteLists.compactMap(\.remoteDocumentId))
+        let orphanedLists = localLists.filter {
+            guard let remoteDocumentId = $0.remoteDocumentId, !remoteDocumentId.isEmpty else { return false }
+            return !remoteDocumentIds.contains(remoteDocumentId)
+        }
+
+        for orphanedList in orphanedLists {
+            let orphanedItems = try fetchAllItems(modelContext: modelContext).filter { $0.listId == orphanedList.id }
+            for orphanedItem in orphanedItems {
+                modelContext.delete(orphanedItem)
+            }
+            modelContext.delete(orphanedList)
+            didChange = true
+        }
+
         if didChange {
             try modelContext.save()
         }
@@ -255,6 +343,17 @@ final class VerseListSyncCoordinator: ObservableObject {
             modelContext.insert(newItem)
             localItemsByRemoteDocumentId[remoteItemDocumentId] = newItem
             localItemsByDuplicateKey[remoteKey] = newItem
+            didChange = true
+        }
+
+        let remoteItemDocumentIds = Set(remoteItems.compactMap(\.remoteDocumentId))
+        let orphanedItems = localItems.filter {
+            guard let remoteDocumentId = $0.remoteDocumentId, !remoteDocumentId.isEmpty else { return false }
+            return !remoteItemDocumentIds.contains(remoteDocumentId)
+        }
+
+        for orphanedItem in orphanedItems {
+            modelContext.delete(orphanedItem)
             didChange = true
         }
 
@@ -412,6 +511,38 @@ final class VerseListSyncCoordinator: ObservableObject {
 
     private func fetchAllItems(modelContext: ModelContext) throws -> [MyVerseListItem] {
         try modelContext.fetch(FetchDescriptor<MyVerseListItem>())
+    }
+
+    private func resolveRemoteDocumentIdIfNeeded(
+        for list: MyVerseList,
+        userID: String,
+        modelContext: ModelContext
+    ) async throws -> String? {
+        if let remoteDocumentId = list.remoteDocumentId, !remoteDocumentId.isEmpty {
+            return remoteDocumentId
+        }
+
+        let remoteLists = try await service.fetchLists(for: userID)
+
+        if let matchedByLocalId = remoteLists.first(where: { $0.id == list.id }),
+           let remoteDocumentId = matchedByLocalId.remoteDocumentId {
+            list.remoteDocumentId = remoteDocumentId
+            list.lastSyncedAt = Date()
+            try modelContext.save()
+            return remoteDocumentId
+        }
+
+        let localDuplicateKey = listDuplicateKey(for: list, userID: userID)
+        if let matchedByDuplicateKey = remoteLists.first(where: {
+            listDuplicateKey(for: $0, userID: userID) == localDuplicateKey
+        }), let remoteDocumentId = matchedByDuplicateKey.remoteDocumentId {
+            list.remoteDocumentId = remoteDocumentId
+            list.lastSyncedAt = Date()
+            try modelContext.save()
+            return remoteDocumentId
+        }
+
+        return nil
     }
 
     private func listDuplicateKey(for list: MyVerseList, userID: String) -> String {

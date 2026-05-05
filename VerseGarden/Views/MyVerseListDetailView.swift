@@ -21,6 +21,10 @@ struct MyVerseListDetailView: View {
     @State private var deletingList = false
     @State private var expandedSectionKeys: Set<String> = []
     @State private var isLoadingRemoteItems = false
+    @State private var pendingDeletedItemIDs: Set<UUID> = []
+    @State private var pendingDeleteEntireList = false
+    @State private var isApplyingPendingChanges = false
+    @State private var showingDiscardChangesAlert = false
 
     private let service = BibleDataService.shared
 
@@ -83,24 +87,27 @@ struct MyVerseListDetailView: View {
             .padding()
         }
         .navigationTitle(list.title)
+        .navigationBarBackButtonHidden(true)
         .background(Color(.systemGroupedBackground))
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                if isManagingVerses {
-                    Button("완료") {
-                        isManagingVerses = false
-                        selectedItemIDs.removeAll()
+                Button {
+                    handleBackNavigation()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                        Text("뒤로")
                     }
                 }
+                .disabled(isApplyingPendingChanges)
             }
 
-            ToolbarItemGroup(placement: .topBarTrailing) {
+            ToolbarItem(placement: .topBarTrailing) {
                 if isManagingVerses {
-                    Button(role: .destructive) {
-                        deletingList = true
-                    } label: {
-                        Text("전체 삭제")
+                    Button("완료") {
+                        applyManageChanges()
                     }
+                    .disabled(isApplyingPendingChanges)
                 } else {
                     Button("구절 편집") {
                         isManagingVerses = true
@@ -161,13 +168,21 @@ struct MyVerseListDetailView: View {
         } message: {
             Text("이 장에 묶인 구절이 리스트에서 한 번에 제거됩니다.")
         }
-        .alert("리스트를 삭제할까요?", isPresented: $deletingList) {
+        .alert(isManagingVerses ? "리스트 안의 모든 구절을 삭제할까요?" : "리스트를 삭제할까요?", isPresented: $deletingList) {
             Button("취소", role: .cancel) {}
             Button("삭제", role: .destructive) {
                 deleteList()
             }
         } message: {
-            Text("리스트와 그 안의 구절이 함께 삭제됩니다.")
+            Text(isManagingVerses ? "리스트 자체는 유지되고, 안에 있는 구절만 모두 삭제됩니다." : "리스트와 그 안의 구절이 함께 삭제됩니다.")
+        }
+        .alert("변경 사항이 적용되지 않았습니다", isPresented: $showingDiscardChangesAlert) {
+            Button("취소", role: .cancel) {}
+            Button("나가기", role: .destructive) {
+                discardPendingChangesAndDismiss()
+            }
+        } message: {
+            Text("완료 버튼을 누르지 않으면 삭제 예정 변경 사항은 적용되지 않습니다.")
         }
         .safeAreaInset(edge: .bottom) {
             if isManagingVerses && !listItems.isEmpty {
@@ -183,6 +198,14 @@ struct MyVerseListDetailView: View {
         allItems
             .items(for: authViewModel.currentUser?.uid)
             .filter { $0.listId == list.id }
+    }
+
+    private var hasPendingManageChanges: Bool {
+        pendingDeleteEntireList || !pendingDeletedItemIDs.isEmpty
+    }
+
+    private func isPendingDeletion(_ item: MyVerseListItem) -> Bool {
+        pendingDeleteEntireList || pendingDeletedItemIDs.contains(item.id)
     }
 
     private var displaySections: [ListVerseSection] {
@@ -241,7 +264,9 @@ struct MyVerseListDetailView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("구절 편집 중")
                     .font(.headline)
-                Text("빼고 싶은 구절을 선택한 뒤 아래 삭제 버튼을 누르세요. 같은 화면에서 리스트 전체 삭제도 가능합니다.")
+                Text(hasPendingManageChanges
+                     ? "삭제 예정 항목이 표시되고 있습니다. 완료를 누르면 실제로 반영됩니다."
+                     : "빼고 싶은 구절을 선택한 뒤 아래 삭제 버튼을 누르세요. 완료를 누르면 실제로 반영됩니다.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -258,16 +283,35 @@ struct MyVerseListDetailView: View {
                 Button {
                     toggleItemSelection(item.id)
                 } label: {
-                    itemCard(verse: verse, isSelectable: true, isSelected: selectedItemIDs.contains(item.id))
+                    itemCard(
+                        verse: verse,
+                        isSelectable: true,
+                        isSelected: selectedItemIDs.contains(item.id),
+                        isPendingDeletion: isPendingDeletion(item)
+                    )
                 }
                 .buttonStyle(.plain)
             } else {
                 NavigationLink {
                     WriteView(localVerse: verse, sourceType: .customList)
                 } label: {
-                    itemCard(verse: verse, isSelectable: false, isSelected: false)
+                    itemCard(
+                        verse: verse,
+                        isSelectable: false,
+                        isSelected: false,
+                        isPendingDeletion: false
+                    )
                 }
                 .buttonStyle(PressableCardStyle())
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if !isManagingVerses {
+                Button(role: .destructive) {
+                    deletingItem = item
+                } label: {
+                    Label("삭제", systemImage: "trash")
+                }
             }
         }
         .contextMenu {
@@ -281,40 +325,61 @@ struct MyVerseListDetailView: View {
         }
     }
 
-    private func itemCard(verse: LocalBibleVerse, isSelectable: Bool, isSelected: Bool) -> some View {
+    private func itemCard(
+        verse: LocalBibleVerse,
+        isSelectable: Bool,
+        isSelected: Bool,
+        isPendingDeletion: Bool
+    ) -> some View {
         HStack(alignment: .top, spacing: 14) {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(isSelected ? Color.green.opacity(0.18) : Color.green.opacity(0.12))
+                .fill(iconBackgroundColor(isSelected: isSelected, isPendingDeletion: isPendingDeletion))
                 .frame(width: 48, height: 48)
                 .overlay {
-                    Image(systemName: isSelectable ? (isSelected ? "checkmark.circle.fill" : "circle") : "bookmark.fill")
-                        .foregroundStyle(isSelected ? .green : .green)
+                    Image(systemName: iconName(isSelectable: isSelectable, isSelected: isSelected, isPendingDeletion: isPendingDeletion))
+                        .foregroundStyle(iconForegroundColor(isPendingDeletion: isPendingDeletion))
                 }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("\(verse.book) \(verse.chapter):\(verse.verse)")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
+                HStack(spacing: 8) {
+                    Text("\(verse.book) \(verse.chapter):\(verse.verse)")
+                        .font(.headline)
+                        .foregroundColor(isPendingDeletion ? .secondary : .primary)
+                        .strikethrough(isPendingDeletion, color: .red.opacity(0.7))
+                    if isPendingDeletion {
+                        Text("삭제 예정")
+                            .font(.caption2.weight(.bold))
+                            .foregroundColor(.red)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.red.opacity(0.10))
+                            .clipShape(Capsule())
+                    }
+                }
                 Text(versePreview(for: verse.text))
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundColor(isPendingDeletion ? Color.secondary.opacity(0.75) : Color.secondary)
                     .lineLimit(2)
+                    .strikethrough(isPendingDeletion, color: .red.opacity(0.6))
             }
 
             Spacer()
 
-            Image(systemName: isSelectable ? (isSelected ? "checkmark.circle.fill" : "circle") : "chevron.right")
+            Image(systemName: trailingIconName(isSelectable: isSelectable, isSelected: isSelected, isPendingDeletion: isPendingDeletion))
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(isSelected ? .green : .secondary)
+                .foregroundColor(trailingIconColor(isSelected: isSelected, isPendingDeletion: isPendingDeletion))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .background(Color(.secondarySystemBackground))
+        .background(cardBackgroundColor(isPendingDeletion: isPendingDeletion))
         .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(isSelected ? Color.green.opacity(0.45) : Color.clear, lineWidth: 1.5)
+            if isPendingDeletion || isSelected {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(borderColor(isSelected: isSelected, isPendingDeletion: isPendingDeletion), lineWidth: 1.5)
+            }
         }
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .opacity(isPendingDeletion ? 0.78 : 1)
     }
 
     private func chapterFolderCard(section: ListVerseSection) -> some View {
@@ -341,7 +406,12 @@ struct MyVerseListDetailView: View {
                             .foregroundStyle(.secondary)
                         Text(isExpanded(section.key.id) ? "접기" : "펼쳐서 보기")
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.green)
+                            .foregroundColor(.green)
+                        if section.items.allSatisfy({ isPendingDeletion($0) }) {
+                            Text("이 폴더의 구절이 모두 삭제 예정입니다.")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
                     }
 
                     Spacer()
@@ -401,7 +471,7 @@ struct MyVerseListDetailView: View {
                 Button(role: .destructive) {
                     deletingSelectedItems = true
                 } label: {
-                    Text(selectedItemIDs.isEmpty ? "선택한 구절 삭제" : "\(selectedItemIDs.count)개 구절 삭제")
+                    Text(selectedItemIDs.isEmpty ? "선택한 구절 삭제" : "\(selectedItemIDs.count)개 구절 삭제 예약")
                         .font(.headline)
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
@@ -414,7 +484,7 @@ struct MyVerseListDetailView: View {
                 Button(role: .destructive) {
                     deletingList = true
                 } label: {
-                    Text("리스트 전체 삭제")
+                    Text("리스트 안 구절 전체 삭제")
                         .font(.headline)
                         .foregroundStyle(.red)
                         .frame(maxWidth: .infinity)
@@ -434,6 +504,39 @@ struct MyVerseListDetailView: View {
             return text
         }
         return String(text.prefix(68)) + "..."
+    }
+
+    private func iconBackgroundColor(isSelected: Bool, isPendingDeletion: Bool) -> Color {
+        if isPendingDeletion { return Color.red.opacity(0.12) }
+        return isSelected ? Color.green.opacity(0.18) : Color.green.opacity(0.12)
+    }
+
+    private func iconName(isSelectable: Bool, isSelected: Bool, isPendingDeletion: Bool) -> String {
+        if isPendingDeletion { return "minus.circle.fill" }
+        return isSelectable ? (isSelected ? "checkmark.circle.fill" : "circle") : "bookmark.fill"
+    }
+
+    private func iconForegroundColor(isPendingDeletion: Bool) -> Color {
+        isPendingDeletion ? .red : .green
+    }
+
+    private func trailingIconName(isSelectable: Bool, isSelected: Bool, isPendingDeletion: Bool) -> String {
+        if isPendingDeletion { return "clock.arrow.trianglehead.counterclockwise.rotate.90" }
+        return isSelectable ? (isSelected ? "checkmark.circle.fill" : "circle") : "chevron.right"
+    }
+
+    private func trailingIconColor(isSelected: Bool, isPendingDeletion: Bool) -> Color {
+        if isPendingDeletion { return .red }
+        return isSelected ? .green : .secondary
+    }
+
+    private func cardBackgroundColor(isPendingDeletion: Bool) -> Color {
+        isPendingDeletion ? Color.red.opacity(0.06) : Color(.secondarySystemBackground)
+    }
+
+    private func borderColor(isSelected: Bool, isPendingDeletion: Bool) -> Color {
+        if isPendingDeletion { return Color.red.opacity(0.35) }
+        return isSelected ? Color.green.opacity(0.45) : .clear
     }
 
     private func addVersesToList(_ verses: [LocalBibleVerse]) {
@@ -496,26 +599,45 @@ struct MyVerseListDetailView: View {
 
     private func confirmDeleteItem() {
         guard let item = deletingItem else { return }
-        modelContext.delete(item)
-        try? modelContext.save()
         deletingItem = nil
+
+        Task {
+            await verseListSyncCoordinator.deleteItemIfNeeded(
+                localItemID: item.id,
+                userID: authViewModel.currentUser?.uid,
+                modelContext: modelContext
+            )
+        }
     }
 
     private func deleteList() {
-        for item in listItems {
-            modelContext.delete(item)
+        let listID = list.id
+        if isManagingVerses {
+            pendingDeleteEntireList = true
+            pendingDeletedItemIDs = Set(
+                allItems
+                    .items(for: authViewModel.currentUser?.uid)
+                    .filter { $0.listId == listID }
+                    .map(\.id)
+            )
+            selectedItemIDs.removeAll()
+            deletingList = false
+            return
         }
-        modelContext.delete(list)
-        try? modelContext.save()
-        dismiss()
+
+        Task {
+            await verseListSyncCoordinator.deleteListIfNeeded(
+                localListID: listID,
+                userID: authViewModel.currentUser?.uid,
+                modelContext: modelContext
+            )
+            dismiss()
+        }
     }
 
     private func deleteSelectedItems() {
         let itemsToDelete = listItems.filter { selectedItemIDs.contains($0.id) }
-        for item in itemsToDelete {
-            modelContext.delete(item)
-        }
-        try? modelContext.save()
+        pendingDeletedItemIDs.formUnion(itemsToDelete.map(\.id))
         selectedItemIDs.removeAll()
         deletingSelectedItems = false
     }
@@ -533,13 +655,86 @@ struct MyVerseListDetailView: View {
 
     private func deleteSection() {
         guard let section = deletingSection else { return }
+        pendingDeletedItemIDs.formUnion(section.items.map(\.id))
         for item in section.items {
-            modelContext.delete(item)
             selectedItemIDs.remove(item.id)
         }
-        try? modelContext.save()
         expandedSectionKeys.remove(section.key.id)
         deletingSection = nil
+    }
+
+    private func applyManageChanges() {
+        if !hasPendingManageChanges {
+            isManagingVerses = false
+            selectedItemIDs.removeAll()
+            return
+        }
+
+        isApplyingPendingChanges = true
+        let pendingItemIDs = pendingDeletedItemIDs
+        let shouldDeleteList = pendingDeleteEntireList
+        let listID = list.id
+
+        Task {
+            if shouldDeleteList {
+                let itemIDs = allItems
+                    .items(for: authViewModel.currentUser?.uid)
+                    .filter { $0.listId == listID }
+                    .map(\.id)
+
+                for itemID in itemIDs {
+                    await verseListSyncCoordinator.deleteItemIfNeeded(
+                        localItemID: itemID,
+                        userID: authViewModel.currentUser?.uid,
+                        modelContext: modelContext
+                    )
+                }
+                await MainActor.run {
+                    isApplyingPendingChanges = false
+                    pendingDeletedItemIDs.removeAll()
+                    pendingDeleteEntireList = false
+                    selectedItemIDs.removeAll()
+                    isManagingVerses = false
+                }
+                return
+            }
+
+            for itemID in pendingItemIDs {
+                await verseListSyncCoordinator.deleteItemIfNeeded(
+                    localItemID: itemID,
+                    userID: authViewModel.currentUser?.uid,
+                    modelContext: modelContext
+                )
+            }
+
+            await MainActor.run {
+                pendingDeletedItemIDs.removeAll()
+                pendingDeleteEntireList = false
+                selectedItemIDs.removeAll()
+                isApplyingPendingChanges = false
+                isManagingVerses = false
+            }
+        }
+    }
+
+    private func handleBackNavigation() {
+        if isManagingVerses || hasPendingManageChanges {
+            showingDiscardChangesAlert = true
+        } else {
+            dismiss()
+        }
+    }
+
+    private func discardPendingChangesAndDismiss() {
+        pendingDeletedItemIDs.removeAll()
+        pendingDeleteEntireList = false
+        selectedItemIDs.removeAll()
+        deletingItem = nil
+        deletingSection = nil
+        deletingSelectedItems = false
+        deletingList = false
+        isManagingVerses = false
+        dismiss()
     }
 
     private func folderSubtitle(for section: ListVerseSection) -> String {

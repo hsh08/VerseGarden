@@ -46,6 +46,16 @@ final class WritingRecordSyncCoordinator: ObservableObject {
         } catch {}
     }
 
+    func deleteRecordIfNeeded(remoteDocumentId: String?, ownerUserId: String, userID: String?) async {
+        guard let userID = validatedCurrentUserID(for: userID) else { return }
+        guard activeUserId == userID else { return }
+        guard ownerUserId == userID, let remoteDocumentId, !remoteDocumentId.isEmpty else { return }
+
+        do {
+            try await service.deleteRecord(recordId: remoteDocumentId, for: userID)
+        } catch {}
+    }
+
     func stopSync() {
         activeUserId = nil
         isSyncing = false

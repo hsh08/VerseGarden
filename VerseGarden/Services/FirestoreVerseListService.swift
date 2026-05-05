@@ -70,6 +70,81 @@ struct FirestoreVerseListService {
         return reference.documentID
     }
 
+    func updateList(listRemoteId: String, title: String, memo: String, for userID: String) async throws {
+        guard let currentUID = Auth.auth().currentUser?.uid,
+              !userID.isEmpty,
+              !listRemoteId.isEmpty,
+              currentUID == userID else {
+            throw FirestoreSyncError.notAuthenticated
+        }
+
+        let document = database
+            .collection("users")
+            .document(userID)
+            .collection("verseLists")
+            .document(listRemoteId)
+
+        let data: [String: Any] = [
+            "title": title,
+            "memo": memo,
+            "updatedAt": FieldValue.serverTimestamp(),
+            "lastSyncedAt": FieldValue.serverTimestamp()
+        ]
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            document.setData(data, merge: true) { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
+    }
+
+    func deleteList(listRemoteId: String, for userID: String) async throws {
+        guard let currentUID = Auth.auth().currentUser?.uid,
+              !userID.isEmpty,
+              !listRemoteId.isEmpty,
+              currentUID == userID else {
+            throw FirestoreSyncError.notAuthenticated
+        }
+
+        let listDocument = database
+            .collection("users")
+            .document(userID)
+            .collection("verseLists")
+            .document(listRemoteId)
+
+        let itemsSnapshot = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<QuerySnapshot, Error>) in
+            listDocument.collection("items").getDocuments { snapshot, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let snapshot {
+                    continuation.resume(returning: snapshot)
+                } else {
+                    continuation.resume(throwing: FirestoreSyncError.invalidSnapshot)
+                }
+            }
+        }
+
+        let batch = database.batch()
+        for document in itemsSnapshot.documents {
+            batch.deleteDocument(document.reference)
+        }
+        batch.deleteDocument(listDocument)
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            batch.commit { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
+    }
+
     func createItem(
         from item: MyVerseListItem,
         for userID: String,
@@ -119,6 +194,34 @@ struct FirestoreVerseListService {
         }
 
         return reference.documentID
+    }
+
+    func deleteItem(listId: String, itemId: String, for userID: String) async throws {
+        guard let currentUID = Auth.auth().currentUser?.uid,
+              !userID.isEmpty,
+              !listId.isEmpty,
+              !itemId.isEmpty,
+              currentUID == userID else {
+            throw FirestoreSyncError.notAuthenticated
+        }
+
+        let document = database
+            .collection("users")
+            .document(userID)
+            .collection("verseLists")
+            .document(listId)
+            .collection("items")
+            .document(itemId)
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            document.delete { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
     }
 
     func fetchItems(userId: String, listRemoteId: String, localListId: UUID) async throws -> [MyVerseListItem] {

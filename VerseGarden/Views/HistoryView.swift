@@ -4,6 +4,7 @@ import SwiftUI
 
 struct HistoryView: View {
     @EnvironmentObject private var authViewModel: AuthViewModel
+    @EnvironmentObject private var syncCoordinator: WritingRecordSyncCoordinator
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \WritingRecord.completedAt, order: .reverse) private var records: [WritingRecord]
     @State private var editingRecord: WritingRecord?
@@ -275,8 +276,18 @@ struct HistoryView: View {
     }
 
     private func deleteRecord(_ record: WritingRecord) {
+        let remoteDocumentId = record.remoteDocumentId
+        let ownerUserId = record.ownerUserId
         modelContext.delete(record)
         try? modelContext.save()
+
+        Task {
+            await syncCoordinator.deleteRecordIfNeeded(
+                remoteDocumentId: remoteDocumentId,
+                ownerUserId: ownerUserId,
+                userID: authViewModel.currentUser?.uid
+            )
+        }
     }
 
     private var deleteAlertBinding: Binding<Bool> {

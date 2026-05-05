@@ -85,6 +85,17 @@ struct CreateMyVerseListView: View {
             list.title = trimmedTitle
             list.memo = trimmedMemo
             list.updatedAt = Date()
+            try? modelContext.save()
+
+            if authViewModel.currentUser != nil {
+                Task {
+                    await verseListSyncCoordinator.updateListIfNeeded(
+                        localListID: list.id,
+                        userID: authViewModel.currentUser?.uid,
+                        modelContext: modelContext
+                    )
+                }
+            }
         } else {
             let newList = MyVerseList(
                 title: trimmedTitle,
@@ -107,7 +118,6 @@ struct CreateMyVerseListView: View {
             dismiss()
             return
         }
-        try? modelContext.save()
         dismiss()
     }
 }

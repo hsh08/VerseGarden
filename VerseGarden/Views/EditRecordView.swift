@@ -1,13 +1,17 @@
+import FirebaseAuth
 import SwiftData
 import SwiftUI
 
 struct EditRecordView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var authViewModel: AuthViewModel
+    @EnvironmentObject private var syncCoordinator: WritingRecordSyncCoordinator
 
     let record: WritingRecord
 
     @State private var draftText: String
+    @State private var showingDeleteConfirmation = false
 
     init(record: WritingRecord) {
         self.record = record
@@ -73,8 +77,22 @@ struct EditRecordView: View {
                 }
                 .disabled(trimmedText.isEmpty)
             }
+
+            ToolbarItem(placement: .bottomBar) {
+                Button("삭제", role: .destructive) {
+                    showingDeleteConfirmation = true
+                }
+            }
         }
         .background(Color(.systemGroupedBackground))
+        .alert("삭제하시겠습니까?", isPresented: $showingDeleteConfirmation) {
+            Button("취소", role: .cancel) {}
+            Button("삭제", role: .destructive) {
+                deleteRecord()
+            }
+        } message: {
+            Text("선택한 필사 기록이 삭제됩니다.")
+        }
     }
 
     private var trimmedText: String {
@@ -87,5 +105,22 @@ struct EditRecordView: View {
         record.userText = trimmedText
         try? modelContext.save()
         dismiss()
+    }
+
+    private func deleteRecord() {
+        let remoteDocumentId = record.remoteDocumentId
+        let ownerUserId = record.ownerUserId
+
+        modelContext.delete(record)
+        try? modelContext.save()
+        dismiss()
+
+        Task {
+            await syncCoordinator.deleteRecordIfNeeded(
+                remoteDocumentId: remoteDocumentId,
+                ownerUserId: ownerUserId,
+                userID: authViewModel.currentUser?.uid
+            )
+        }
     }
 }

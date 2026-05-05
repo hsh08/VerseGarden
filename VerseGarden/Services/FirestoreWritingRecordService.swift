@@ -106,6 +106,31 @@ struct FirestoreWritingRecordService {
 
         return reference.documentID
     }
+
+    func deleteRecord(recordId: String, for userID: String) async throws {
+        guard let currentUID = Auth.auth().currentUser?.uid,
+              !userID.isEmpty,
+              !recordId.isEmpty,
+              currentUID == userID else {
+            throw FirestoreSyncError.notAuthenticated
+        }
+
+        let document = database
+            .collection("users")
+            .document(userID)
+            .collection("writingRecords")
+            .document(recordId)
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            document.delete { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
+    }
 }
 
 enum FirestoreSyncError: Error {

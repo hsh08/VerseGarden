@@ -86,6 +86,15 @@ struct MyVerseListView: View {
         }
         .navigationTitle("리스트")
         .background(Color(.systemGroupedBackground))
+        .onAppear {
+            guard authViewModel.currentUser != nil else { return }
+            Task {
+                await verseListSyncCoordinator.syncForAuthenticatedUser(
+                    userID: authViewModel.currentUser?.uid,
+                    modelContext: modelContext
+                )
+            }
+        }
         .task(id: authViewModel.currentUser?.uid) {
             guard authViewModel.currentUser != nil else { return }
             await verseListSyncCoordinator.syncForAuthenticatedUser(
@@ -198,13 +207,14 @@ struct MyVerseListView: View {
 
     private func confirmDeleteList() {
         guard let list = deletingList else { return }
-
-        let items = currentUserItems.filter { $0.listId == list.id }
-        for item in items {
-            modelContext.delete(item)
-        }
-        modelContext.delete(list)
-        try? modelContext.save()
         deletingList = nil
+
+        Task {
+            await verseListSyncCoordinator.deleteListIfNeeded(
+                localListID: list.id,
+                userID: authViewModel.currentUser?.uid,
+                modelContext: modelContext
+            )
+        }
     }
 }
