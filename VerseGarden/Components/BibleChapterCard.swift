@@ -24,13 +24,13 @@ struct BibleChapterCard: View {
         }
         .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
         .padding(14)
-        .background(backgroundColor)
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(borderColor, lineWidth: isFullyCompleted ? 1.4 : isInProgress ? 1.1 : 0.8)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .shadow(color: Color.black.opacity(0.04), radius: 8, y: 3)
+        .gardenCardSurface(
+            background: backgroundColor,
+            border: borderColor,
+            cornerRadius: AppRadius.medium,
+            shadowRadius: 8,
+            shadowY: 3
+        )
     }
 
     private var isInProgress: Bool {
@@ -52,7 +52,7 @@ struct BibleChapterCard: View {
     }
 
     private var iconColor: Color {
-        isFullyCompleted || isInProgress ? .green : .secondary
+        isFullyCompleted || isInProgress ? GardenTheme.primary : .secondary
     }
 
     private var statusText: String {
@@ -66,26 +66,26 @@ struct BibleChapterCard: View {
     }
 
     private var statusColor: Color {
-        isFullyCompleted || isInProgress ? .green : .secondary
+        isFullyCompleted || isInProgress ? GardenTheme.primary : .secondary
     }
 
     private var backgroundColor: Color {
         if isFullyCompleted {
-            return Color.green.opacity(0.16)
+            return GardenTheme.primary.opacity(0.14)
         }
         if isInProgress {
-            return Color.green.opacity(0.08)
+            return GardenTheme.primary.opacity(0.08)
         }
-        return Color(.systemBackground)
+        return GardenTheme.cardBackground
     }
 
     private var borderColor: Color {
         if isFullyCompleted {
-            return Color.green.opacity(0.55)
+            return GardenTheme.primary.opacity(0.50)
         }
         if isInProgress {
-            return Color.green.opacity(0.32)
+            return GardenTheme.primary.opacity(0.30)
         }
-        return Color.black.opacity(0.05)
+        return AppColors.border.opacity(0.72)
     }
 }

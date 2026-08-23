@@ -42,7 +42,7 @@ struct HistoryView: View {
             .padding()
         }
         .navigationTitle("기록")
-        .background(Color(.systemGroupedBackground))
+        .background(GardenTheme.background)
         .sheet(item: $editingRecord) { record in
             NavigationStack {
                 EditRecordView(record: record)
@@ -100,7 +100,7 @@ struct HistoryView: View {
                                 .foregroundStyle(selectedSourceFilter == filter ? Color.white : Color.primary)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 10)
-                                .background(selectedSourceFilter == filter ? Color.green : Color(.secondarySystemBackground))
+                                .background(selectedSourceFilter == filter ? GardenTheme.primary : AppColors.cardTint)
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
@@ -132,7 +132,7 @@ struct HistoryView: View {
                         }
                         .font(.subheadline.weight(.semibold))
                         .buttonStyle(.borderedProminent)
-                        .tint(.green)
+                        .tint(GardenTheme.primary)
                     }
 
                     if selectedSourceFilter != .all {
@@ -193,7 +193,7 @@ struct HistoryView: View {
             .buttonStyle(.bordered)
         }
         .padding()
-        .background(Color(.secondarySystemBackground))
+        .background(AppColors.cardTint)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
@@ -259,7 +259,7 @@ struct HistoryView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(Color(.secondarySystemBackground))
+        .background(AppColors.cardTint)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
@@ -278,15 +278,16 @@ struct HistoryView: View {
     private func deleteRecord(_ record: WritingRecord) {
         let remoteDocumentId = record.remoteDocumentId
         let ownerUserId = record.ownerUserId
-        modelContext.delete(record)
-        try? modelContext.save()
 
         Task {
-            await syncCoordinator.deleteRecordIfNeeded(
+            let didDeleteRemote = await syncCoordinator.deleteRecordIfNeeded(
                 remoteDocumentId: remoteDocumentId,
                 ownerUserId: ownerUserId,
                 userID: authViewModel.currentUser?.uid
             )
+            guard didDeleteRemote else { return }
+            modelContext.delete(record)
+            try? modelContext.save()
         }
     }
 
@@ -317,8 +318,8 @@ private enum HistorySourceFilter: String, CaseIterable, Identifiable {
     case all
     case direct
     case theme
-    case monthly
     case customList
+    case plan
 
     var id: String { rawValue }
 
@@ -330,10 +331,10 @@ private enum HistorySourceFilter: String, CaseIterable, Identifiable {
             return "직접"
         case .theme:
             return "테마"
-        case .monthly:
-            return "월간"
         case .customList:
             return "리스트"
+        case .plan:
+            return "플랜"
         }
     }
 
@@ -345,10 +346,10 @@ private enum HistorySourceFilter: String, CaseIterable, Identifiable {
             return "직접"
         case .theme:
             return "테마"
-        case .monthly:
-            return "월간"
         case .customList:
             return "리스트"
+        case .plan:
+            return "플랜"
         }
     }
 
@@ -360,25 +361,25 @@ private enum HistorySourceFilter: String, CaseIterable, Identifiable {
             return "성경 직접 선택으로 시작한 필사 기록입니다."
         case .theme:
             return "테마별 말씀에서 시작한 필사 기록입니다."
-        case .monthly:
-            return "이번 달 필사 루틴에서 시작한 기록입니다."
         case .customList:
             return "나만의 리스트에서 시작한 필사 기록입니다."
+        case .plan:
+            return "필사 플랜에서 이어진 말씀 기록입니다."
         }
     }
 
     var tint: Color {
         switch self {
         case .all:
-            return .green
+            return GardenTheme.primary
         case .direct:
-            return .green
+            return GardenTheme.primary
         case .theme:
-            return .mint
-        case .monthly:
-            return .teal
+            return GardenTheme.secondary
         case .customList:
             return .orange
+        case .plan:
+            return GardenTheme.primary
         }
     }
 

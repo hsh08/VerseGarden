@@ -40,10 +40,10 @@ struct BibleChapterSelectView: View {
                                 } label: {
                                     Text("이 장 전체 추가")
                                         .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.green)
+                                        .foregroundStyle(GardenTheme.primary)
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 10)
-                                        .background(Color.green.opacity(0.10))
+                                        .background(GardenTheme.primary.opacity(0.10))
                                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                                 }
                                 .buttonStyle(.plain)
@@ -55,7 +55,7 @@ struct BibleChapterSelectView: View {
             .padding()
         }
         .navigationTitle("장 선택")
-        .background(Color(.systemGroupedBackground))
+        .background(GardenTheme.background)
     }
 
     private var startedChapters: Set<Int> {
@@ -76,9 +76,7 @@ struct BibleChapterSelectView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .shadow(color: Color.black.opacity(0.05), radius: 12, y: 4)
+        .gardenCardSurface()
     }
 
     private func completedVerseCount(for chapter: Int) -> Int {

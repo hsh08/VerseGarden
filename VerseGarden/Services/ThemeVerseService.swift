@@ -55,6 +55,22 @@ enum ThemeVerseService {
             ]
         ),
         ThemeItem(
+            title: "사람들이 좌우명으로 삼는 말씀",
+            description: "삶의 방향이 되어주는 대표 성경 말씀들을 모았습니다.",
+            icon: "bookmark.fill",
+            accentName: "mint",
+            verses: [
+                ThemeVerse(theme: "사람들이 좌우명으로 삼는 말씀", book: "요한복음", chapter: 3, verse: 16, reason: "위로처럼 가장 먼저 붙들고 싶은 사랑의 말씀"),
+                ThemeVerse(theme: "사람들이 좌우명으로 삼는 말씀", book: "여호수아", chapter: 1, verse: 9, reason: "용기가 필요할 때 마음에 새기고 싶은 말씀"),
+                ThemeVerse(theme: "사람들이 좌우명으로 삼는 말씀", book: "마태복음", chapter: 11, verse: 28, reason: "쉼이 필요할 때 다시 돌아오게 하는 말씀"),
+                ThemeVerse(theme: "사람들이 좌우명으로 삼는 말씀", book: "데살로니가전서", chapter: 5, verse: 16, reason: "감사와 기도의 태도를 잃지 않게 붙드는 말씀"),
+                ThemeVerse(theme: "사람들이 좌우명으로 삼는 말씀", book: "데살로니가전서", chapter: 5, verse: 17, reason: "감사와 기도의 태도를 잃지 않게 붙드는 말씀"),
+                ThemeVerse(theme: "사람들이 좌우명으로 삼는 말씀", book: "데살로니가전서", chapter: 5, verse: 18, reason: "감사와 기도의 태도를 잃지 않게 붙드는 말씀"),
+                ThemeVerse(theme: "사람들이 좌우명으로 삼는 말씀", book: "잠언", chapter: 16, verse: 9, reason: "인도하심을 신뢰하며 길을 걸어가게 하는 말씀"),
+                ThemeVerse(theme: "사람들이 좌우명으로 삼는 말씀", book: "시편", chapter: 23, verse: 1, reason: "평안으로 하루를 마무리하게 하는 고백의 말씀")
+            ]
+        ),
+        ThemeItem(
             title: "불안하고 두려운 날",
             description: "걱정이 커질 때 중심을 잡아주는 말씀",
             icon: "wind",
@@ -102,11 +118,11 @@ enum ThemeVerseService {
     static func accentColor(for theme: ThemeItem) -> Color {
         switch theme.accentName {
         case "mint":
-            return .mint
+            return GardenTheme.secondary
         case "teal":
-            return .teal
+            return GardenTheme.tertiary
         default:
-            return .green
+            return GardenTheme.primary
         }
     }
 }

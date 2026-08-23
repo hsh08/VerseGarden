@@ -25,7 +25,7 @@ struct MonthGrassCell: View {
         .frame(maxWidth: .infinity, minHeight: 62, maxHeight: 62, alignment: .top)
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(isToday ? Color.green.opacity(0.85) : Color.clear, lineWidth: 1.4)
+                .stroke(isToday ? GardenTheme.primary.opacity(0.9) : Color.clear, lineWidth: 1.4)
         }
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }

@@ -26,14 +26,14 @@ struct GrassGridView: View {
         if index < filledCount {
             let ratio = Double(index) / Double(max(filledCount, 1))
             if ratio < 0.34 {
-                return Color.green.opacity(0.32)
+                return GardenTheme.heatmapLow
             } else if ratio < 0.67 {
-                return Color.green.opacity(0.50)
+                return GardenTheme.heatmapMid
             } else {
-                return Color.mint.opacity(0.72)
+                return GardenTheme.heatmapHigh
             }
         }
 
-        return Color.green.opacity(0.10)
+        return GardenTheme.heatmapZero
     }
 }

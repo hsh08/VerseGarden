@@ -39,7 +39,7 @@ struct BibleBookListView: View {
             .padding()
         }
         .navigationTitle(testament == BibleTestament.old.rawValue ? "구약" : "신약")
-        .background(Color(.systemGroupedBackground))
+        .background(GardenTheme.background)
     }
 
     private var headerCard: some View {
@@ -52,9 +52,7 @@ struct BibleBookListView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .shadow(color: Color.black.opacity(0.05), radius: 12, y: 4)
+        .gardenCardSurface()
     }
 
     private func startedChapterCount(for book: String) -> Int {

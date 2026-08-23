@@ -13,7 +13,7 @@ struct PlaceholderBibleSelectView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
-                .background(Color(.secondarySystemBackground))
+                .background(AppColors.cardTint)
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -28,7 +28,7 @@ struct PlaceholderBibleSelectView: View {
             .padding()
         }
         .navigationTitle("성경 직접 선택")
-        .background(Color(.systemGroupedBackground))
+        .background(GardenTheme.background)
     }
 }
 
@@ -40,7 +40,7 @@ private struct PlaceholderStep: View {
         HStack(spacing: 12) {
             Text(title)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.green)
+                .foregroundStyle(GardenTheme.primary)
                 .frame(width: 52, alignment: .leading)
 
             Text(description)
@@ -50,7 +50,7 @@ private struct PlaceholderStep: View {
             Spacer()
         }
         .padding()
-        .background(Color(.secondarySystemBackground))
+        .background(AppColors.cardTint)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }

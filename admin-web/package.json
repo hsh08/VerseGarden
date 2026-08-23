@@ -1,0 +1,32 @@
+{
+  "name": "versegarden-admin-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm run sync:bible && next dev",
+    "sync:bible": "node ./scripts/sync-bible-data.mjs",
+    "prebuild": "npm run sync:bible",
+    "build": "next build",
+    "pretypecheck": "npm run sync:bible",
+    "typecheck": "tsc --noEmit",
+    "prelint": "npm run sync:bible",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "firebase": "^11.0.0",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.0.0",
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "latest",
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}

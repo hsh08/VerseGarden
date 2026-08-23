@@ -282,16 +282,22 @@ struct FirestoreVerseListService {
         let data = document.data()
 
         guard let title = data["title"] as? String,
+              let ownerUserId = data["ownerUserId"] as? String,
               let createdAtTimestamp = data["createdAt"] as? Timestamp,
               let updatedAtTimestamp = data["updatedAt"] as? Timestamp else {
             return nil
         }
 
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty, ownerUserId == userID else {
+            return nil
+        }
+
         return MyVerseList(
             id: (data["localId"] as? String).flatMap(UUID.init(uuidString:)) ?? UUID(),
-            title: title,
+            title: trimmedTitle,
             memo: (data["memo"] as? String) ?? "",
-            ownerUserId: (data["ownerUserId"] as? String) ?? userID,
+            ownerUserId: ownerUserId,
             remoteDocumentId: document.documentID,
             updatedAt: updatedAtTimestamp.dateValue(),
             lastSyncedAt: (data["lastSyncedAt"] as? Timestamp)?.dateValue() ?? Date(),

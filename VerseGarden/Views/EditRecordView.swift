@@ -23,21 +23,17 @@ struct EditRecordView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("\(record.book) \(record.chapter):\(record.verse)")
                     .font(.headline)
-                Text("원문은 유지하고 내가 쓴 내용만 수정합니다.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
                 Text("원문")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
                 Text(record.originalText)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .lineSpacing(5)
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemBackground))
+            .background(AppColors.cardTint)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
             VStack(alignment: .leading, spacing: 8) {
@@ -47,16 +43,16 @@ struct EditRecordView: View {
                 TextEditor(text: $draftText)
                     .frame(minHeight: 220)
                     .padding(8)
-                    .background(Color(.systemBackground))
+                    .background(GardenTheme.cardBackground)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.green.opacity(0.25), lineWidth: 1)
+                            .stroke(GardenTheme.primary.opacity(0.25), lineWidth: 1)
                     }
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemBackground))
+            .background(AppColors.cardTint)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
             Spacer()
@@ -77,14 +73,32 @@ struct EditRecordView: View {
                 }
                 .disabled(trimmedText.isEmpty)
             }
-
-            ToolbarItem(placement: .bottomBar) {
-                Button("삭제", role: .destructive) {
-                    showingDeleteConfirmation = true
-                }
-            }
         }
-        .background(Color(.systemGroupedBackground))
+        .safeAreaInset(edge: .bottom) {
+            Button(role: .destructive) {
+                showingDeleteConfirmation = true
+            } label: {
+                HStack {
+                    Spacer()
+                    Text("삭제")
+                        .font(.headline)
+                    Spacer()
+                }
+                .padding(.vertical, 14)
+                .background(Color.red.opacity(0.12))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.red.opacity(0.28), lineWidth: 1)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .foregroundStyle(.red)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 8)
+            .background(GardenTheme.background)
+        }
+        .background(GardenTheme.background)
         .alert("삭제하시겠습니까?", isPresented: $showingDeleteConfirmation) {
             Button("취소", role: .cancel) {}
             Button("삭제", role: .destructive) {
@@ -104,23 +118,35 @@ struct EditRecordView: View {
 
         record.userText = trimmedText
         try? modelContext.save()
+
+        if let userID = authViewModel.currentUser?.uid {
+            Task {
+                await syncCoordinator.updateRecordIfNeeded(
+                    localRecordID: record.id,
+                    userID: userID,
+                    modelContext: modelContext
+                )
+            }
+        }
+
         dismiss()
     }
 
     private func deleteRecord() {
         let remoteDocumentId = record.remoteDocumentId
         let ownerUserId = record.ownerUserId
-
-        modelContext.delete(record)
-        try? modelContext.save()
-        dismiss()
+        let record = record
 
         Task {
-            await syncCoordinator.deleteRecordIfNeeded(
+            let didDeleteRemote = await syncCoordinator.deleteRecordIfNeeded(
                 remoteDocumentId: remoteDocumentId,
                 ownerUserId: ownerUserId,
                 userID: authViewModel.currentUser?.uid
             )
+            guard didDeleteRemote else { return }
+            modelContext.delete(record)
+            try? modelContext.save()
+            dismiss()
         }
     }
 }

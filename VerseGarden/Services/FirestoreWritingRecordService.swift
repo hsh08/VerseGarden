@@ -55,7 +55,10 @@ struct FirestoreWritingRecordService {
                 originalText: originalText,
                 userText: userText,
                 completedAt: completedAtTimestamp.dateValue(),
-                sourceType: data["sourceType"] as? String
+                sourceType: data["sourceType"] as? String,
+                planId: data["planId"] as? String,
+                assignmentId: data["assignmentId"] as? String,
+                planDayIndex: data["planDayIndex"] as? Int
             )
         }
 
@@ -87,15 +90,22 @@ struct FirestoreWritingRecordService {
         if let sourceType = record.sourceType {
             data["sourceType"] = sourceType
         }
+        addPlanFields(from: record, to: &data)
 
         let collection = database
             .collection("users")
             .document(userID)
             .collection("writingRecords")
 
-        let reference = collection.document()
+        let reference: DocumentReference
+        if let planDocumentId = deterministicPlanDocumentId(for: record) {
+            reference = collection.document(planDocumentId)
+        } else {
+            reference = collection.document()
+        }
+
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            reference.setData(data) { error in
+            reference.setData(data, merge: true) { error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else {
@@ -105,6 +115,51 @@ struct FirestoreWritingRecordService {
         }
 
         return reference.documentID
+    }
+
+    func updateRecord(_ record: WritingRecord, for userID: String) async throws {
+        guard let currentUID = Auth.auth().currentUser?.uid,
+              !userID.isEmpty,
+              currentUID == userID,
+              let remoteDocumentId = record.remoteDocumentId,
+              !remoteDocumentId.isEmpty else {
+            throw FirestoreSyncError.notAuthenticated
+        }
+
+        var data: [String: Any] = [
+            "localId": record.id.uuidString,
+            "ownerUserId": userID,
+            "date": Timestamp(date: record.date),
+            "verseId": record.verseId,
+            "book": record.book,
+            "chapter": record.chapter,
+            "verse": record.verse,
+            "originalText": record.originalText,
+            "userText": record.userText,
+            "completedAt": Timestamp(date: record.completedAt),
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+
+        if let sourceType = record.sourceType {
+            data["sourceType"] = sourceType
+        }
+        addPlanFields(from: record, to: &data)
+
+        let document = database
+            .collection("users")
+            .document(userID)
+            .collection("writingRecords")
+            .document(remoteDocumentId)
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            document.setData(data, merge: true) { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
     }
 
     func deleteRecord(recordId: String, for userID: String) async throws {
@@ -130,6 +185,51 @@ struct FirestoreWritingRecordService {
                 }
             }
         }
+    }
+
+    private func addPlanFields(from record: WritingRecord, to data: inout [String: Any]) {
+        if let planId = normalized(record.planId) {
+            data["planId"] = planId
+        }
+        if let assignmentId = normalized(record.assignmentId) {
+            data["assignmentId"] = assignmentId
+        }
+        if let planDayIndex = record.planDayIndex {
+            data["planDayIndex"] = planDayIndex
+        }
+    }
+
+    private func deterministicPlanDocumentId(for record: WritingRecord) -> String? {
+        guard record.sourceType == WritingSourceType.plan.rawValue,
+              let planId = normalized(record.planId),
+              let assignmentId = normalized(record.assignmentId),
+              !record.verseId.isEmpty else {
+            return nil
+        }
+
+        return [
+            "plan",
+            planId,
+            "assignment",
+            assignmentId,
+            "verse",
+            record.verseId
+        ]
+        .map(safeDocumentIdComponent)
+        .joined(separator: "_")
+    }
+
+    private func normalized(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func safeDocumentIdComponent(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "#", with: "_")
+            .replacingOccurrences(of: "?", with: "_")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

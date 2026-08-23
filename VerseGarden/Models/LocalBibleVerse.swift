@@ -32,4 +32,12 @@ struct LocalBibleVerse: Identifiable, Hashable {
         self.testament = testament
         self.text = text
     }
+
+    var referenceText: String {
+        "\(book) \(chapter):\(verse)"
+    }
+
+    var shareText: String {
+        "\(referenceText)\n\(text)"
+    }
 }

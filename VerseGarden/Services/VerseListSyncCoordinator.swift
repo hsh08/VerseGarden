@@ -10,6 +10,9 @@ final class VerseListSyncCoordinator: ObservableObject {
     private let service = FirestoreVerseListService()
     private let bibleService = BibleDataService.shared
     private var activeUserId: String?
+    private var syncingUserId: String?
+    private var inFlightListUploads = Set<UUID>()
+    private var inFlightItemUploads = Set<UUID>()
 
     func syncForAuthenticatedUser(userID: String?, modelContext: ModelContext) async {
         guard let userID, !userID.isEmpty else {
@@ -21,17 +24,23 @@ final class VerseListSyncCoordinator: ObservableObject {
             return
         }
 
+        guard syncingUserId != userID else { return }
+
         activeUserId = userID
+        syncingUserId = userID
         isSyncing = true
+        defer {
+            syncingUserId = nil
+            isSyncing = false
+        }
 
         do {
             let remoteLists = try await service.fetchLists(for: userID)
             try reconcile(remoteLists: remoteLists, userID: userID, modelContext: modelContext)
             try await uploadPendingLists(for: userID, modelContext: modelContext)
+            try await reconcileItemsForSyncedLists(for: userID, modelContext: modelContext)
             try await uploadPendingItems(for: userID, modelContext: modelContext)
         } catch {}
-
-        isSyncing = false
     }
 
     func uploadListIfNeeded(localListID: UUID, userID: String?, modelContext: ModelContext) async {
@@ -165,7 +174,10 @@ final class VerseListSyncCoordinator: ObservableObject {
 
     func stopSync() {
         activeUserId = nil
+        syncingUserId = nil
         isSyncing = false
+        inFlightListUploads.removeAll()
+        inFlightItemUploads.removeAll()
     }
 
     private func validatedCurrentUserID(for userID: String?) -> String? {
@@ -442,11 +454,32 @@ final class VerseListSyncCoordinator: ObservableObject {
 
     private func uploadPendingLists(for userID: String, modelContext: ModelContext) async throws {
         let pendingLists = try fetchAllLists(modelContext: modelContext).filter {
-            $0.ownerUserId == userID && $0.remoteDocumentId == nil
+            $0.ownerUserId == userID && $0.remoteDocumentId == nil && !inFlightListUploads.contains($0.id)
         }
 
         for list in pendingLists {
             try await upload(list: list, userID: userID, modelContext: modelContext)
+        }
+    }
+
+    private func reconcileItemsForSyncedLists(for userID: String, modelContext: ModelContext) async throws {
+        let syncedLists = try fetchAllLists(modelContext: modelContext).filter {
+            $0.ownerUserId == userID && ($0.remoteDocumentId?.isEmpty == false)
+        }
+
+        for list in syncedLists {
+            guard let remoteDocumentId = list.remoteDocumentId, !remoteDocumentId.isEmpty else { continue }
+            let remoteItems = try await service.fetchItems(
+                userId: userID,
+                listRemoteId: remoteDocumentId,
+                localListId: list.id
+            )
+            try reconcileItems(
+                remoteItems: remoteItems,
+                list: list,
+                userID: userID,
+                modelContext: modelContext
+            )
         }
     }
 
@@ -468,7 +501,7 @@ final class VerseListSyncCoordinator: ObservableObject {
         guard let remoteListDocumentId = list.remoteDocumentId else { return }
 
         let pendingItems = try fetchAllItems(modelContext: modelContext).filter {
-            $0.ownerUserId == userID && $0.listId == listID && $0.remoteDocumentId == nil
+            $0.ownerUserId == userID && $0.listId == listID && $0.remoteDocumentId == nil && !inFlightItemUploads.contains($0.id)
         }
 
         var uploadedKeys = Set<String>()
@@ -483,6 +516,12 @@ final class VerseListSyncCoordinator: ObservableObject {
 
     private func upload(list: MyVerseList, userID: String, modelContext: ModelContext) async throws {
         guard list.remoteDocumentId == nil else { return }
+        guard !inFlightListUploads.contains(list.id) else { return }
+
+        inFlightListUploads.insert(list.id)
+        defer {
+            inFlightListUploads.remove(list.id)
+        }
 
         let remoteDocumentId = try await service.createList(from: list, for: userID)
         list.remoteDocumentId = remoteDocumentId
@@ -492,6 +531,12 @@ final class VerseListSyncCoordinator: ObservableObject {
 
     private func upload(item: MyVerseListItem, userID: String, remoteListDocumentId: String, modelContext: ModelContext) async throws {
         guard item.remoteDocumentId == nil else { return }
+        guard !inFlightItemUploads.contains(item.id) else { return }
+
+        inFlightItemUploads.insert(item.id)
+        defer {
+            inFlightItemUploads.remove(item.id)
+        }
 
         let verseText = bibleService.getVerse(book: item.book, chapter: item.chapter, verse: item.verse)?.text
         let remoteDocumentId = try await service.createItem(
@@ -560,20 +605,19 @@ final class VerseListSyncCoordinator: ObservableObject {
 
 extension Array where Element == MyVerseList {
     func lists(for userID: String?) -> [MyVerseList] {
-        guard let userID, !userID.isEmpty else {
-            return filter { $0.ownerUserId.isEmpty }
-        }
+        guard let userID, !userID.isEmpty else { return [] }
 
-        return filter { $0.ownerUserId == userID || $0.ownerUserId.isEmpty }
+        return filter {
+            $0.ownerUserId == userID &&
+            !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
 }
 
 extension Array where Element == MyVerseListItem {
     func items(for userID: String?) -> [MyVerseListItem] {
-        guard let userID, !userID.isEmpty else {
-            return filter { $0.ownerUserId.isEmpty }
-        }
+        guard let userID, !userID.isEmpty else { return [] }
 
-        return filter { $0.ownerUserId == userID || $0.ownerUserId.isEmpty }
+        return filter { $0.ownerUserId == userID }
     }
 }

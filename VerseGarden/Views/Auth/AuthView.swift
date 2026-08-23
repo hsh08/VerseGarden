@@ -46,7 +46,7 @@ struct AuthView: View {
                     }
                 }
             }
-            .background(Color(.systemGroupedBackground))
+            .background(GardenTheme.background)
             .navigationBarHidden(true)
             .overlay {
                 if authViewModel.isSubmitting {
@@ -56,7 +56,7 @@ struct AuthView: View {
                         ProgressView("처리 중...")
                             .padding(.horizontal, 24)
                             .padding(.vertical, 16)
-                            .background(Color(.systemBackground))
+                            .background(GardenTheme.cardBackground)
                             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
                 }
@@ -74,44 +74,33 @@ private struct WelcomeAuthView: View {
 
     var body: some View {
         ZStack {
-            backgroundGradient
-                .edgesIgnoringSafeArea(.all)
+            welcomeImageBackground
 
-            decorativeGrassField
-                .opacity(gridOpacity)
+            welcomeImageOverlay
 
             VStack(alignment: .leading, spacing: 0) {
                 heroSection
 
-                Spacer(minLength: 20)
-
-                grassSection
-
                 if let setupMessage = authViewModel.setupMessage {
                     Text(setupMessage)
                         .font(.footnote)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
-                        .background(Color.white.opacity(0.72))
+                        .background(Color.black.opacity(0.28))
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .padding(.top, 28)
+                        .padding(.top, 20)
                 }
 
                 Spacer()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 28)
-            .padding(.top, 40)
+            .padding(.top, 50)
+            .padding(.bottom, 152)
         }
         .safeAreaInset(edge: .bottom) {
             ZStack(alignment: .bottom) {
-                // Changed: CTA 아래를 비워두지 않고 매우 연한 잔디 패턴으로 마감
-                GrassGridView(rows: 3, columns: 12, filledCount: 20)
-                    .opacity(0.07)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 12)
-
                 actionSection
                     .padding(.horizontal, 24)
                     .padding(.top, 12)
@@ -119,7 +108,7 @@ private struct WelcomeAuthView: View {
             }
             .background(
                 LinearGradient(
-                    colors: [Color.white.opacity(0.0), Color.white.opacity(0.82), Color.white.opacity(0.96)],
+                    colors: [Color.black.opacity(0.0), Color.black.opacity(0.34), Color.black.opacity(0.58)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -132,13 +121,46 @@ private struct WelcomeAuthView: View {
         }
     }
 
+    private var welcomeImageBackground: some View {
+        Image("WelcomeJesusGarden")
+            .resizable()
+            .scaledToFill()
+            .ignoresSafeArea()
+    }
+
+    private var welcomeImageOverlay: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0.44),
+                    Color.white.opacity(0.18),
+                    Color.black.opacity(0.28),
+                    Color.black.opacity(0.60)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+
+            LinearGradient(
+                colors: [
+                    GardenTheme.primary.opacity(0.10),
+                    Color.clear,
+                    GardenTheme.secondary.opacity(0.18)
+                ],
+                startPoint: .topTrailing,
+                endPoint: .bottomLeading
+            )
+        }
+        .ignoresSafeArea()
+    }
+
     private var backgroundGradient: some View {
         LinearGradient(
             colors: [
                 Color.white,
-                Color.green.opacity(0.06),
-                Color.mint.opacity(0.10),
-                Color.green.opacity(0.16)
+                GardenTheme.primary.opacity(0.06),
+                GardenTheme.secondary.opacity(0.10),
+                GardenTheme.primary.opacity(0.16)
             ],
             startPoint: .top,
             endPoint: .bottom
@@ -150,35 +172,40 @@ private struct WelcomeAuthView: View {
             Text("VerseGarden")
                 .font(.system(size: 48, weight: .bold, design: .rounded))
                 .tracking(1.1)
+                .foregroundStyle(AppColors.primaryText)
+                .shadow(color: Color.white.opacity(0.74), radius: 12, x: 0, y: 3)
 
-            // Changed: 브랜드 감성을 보강하는 작은 자연 아이콘 추가
             Label("조용히 자라는 기록의 정원", systemImage: "leaf.fill")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color(red: 0.29, green: 0.42, blue: 0.36))
+                .foregroundStyle(GardenTheme.secondary)
                 .labelStyle(.titleAndIcon)
 
             Text("기록은 쌓이고, 믿음은 자랍니다.")
                 .font(.title2.weight(.semibold))
-                .foregroundStyle(Color(red: 0.29, green: 0.42, blue: 0.36))
+                .foregroundStyle(AppColors.primaryText)
+                .shadow(color: Color.white.opacity(0.66), radius: 10, x: 0, y: 3)
 
             Text("매일 한 구절씩 조용히 적어 내려가며\n나만의 정원을 천천히 채워보세요.")
                 .font(.body)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppColors.secondaryText)
                 .lineSpacing(10)
+                .shadow(color: Color.white.opacity(0.62), radius: 8, x: 0, y: 3)
         }
+        .padding(.horizontal, 2)
+        .padding(.vertical, 6)
     }
 
     private var grassSection: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("오늘의 잔디")
                 .font(.headline)
-                .foregroundStyle(Color(red: 0.29, green: 0.42, blue: 0.36))
+                .foregroundStyle(AppColors.secondaryText)
 
             GrassGridView(rows: 5, columns: 7, filledCount: 12)
 
             Text("12/35")
                 .font(.title3.weight(.semibold))
-                .foregroundStyle(.green)
+                .foregroundStyle(GardenTheme.primary)
         }
         // Changed: 카드 느낌을 제거하고 섹션 자체만 남김
     }
@@ -193,13 +220,13 @@ private struct WelcomeAuthView: View {
                     .padding(.vertical, 18)
                     .background(
                         LinearGradient(
-                            colors: [Color.green, Color.mint],
+                            colors: [GardenTheme.primary, GardenTheme.secondary],
                             startPoint: .leading,
                             endPoint: .bottomTrailing
                         )
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    .shadow(color: Color.green.opacity(0.12), radius: 18, x: 0, y: 10)
+                    .shadow(color: GardenTheme.primary.opacity(0.12), radius: 18, x: 0, y: 10)
             }
             // Changed: 탭 시 살짝 눌리는 인터랙션 추가
             .buttonStyle(PrimaryAuthButtonStyle())
@@ -209,8 +236,8 @@ private struct WelcomeAuthView: View {
             Button(action: startLogin) {
                 Text("이미 계정이 있나요? 로그인")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.green)
-                    .opacity(0.72)
+                    .foregroundStyle(.white)
+                    .opacity(0.82)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 4)
             }
@@ -222,12 +249,12 @@ private struct WelcomeAuthView: View {
     private var decorativeGrassField: some View {
         ZStack {
             Circle()
-                .fill(Color.mint.opacity(0.08))
+                .fill(GardenTheme.secondary.opacity(0.08))
                 .frame(width: 260, height: 260)
                 .offset(x: 120, y: 130)
 
             Circle()
-                .fill(Color.green.opacity(0.06))
+                .fill(GardenTheme.primary.opacity(0.06))
                 .frame(width: 220, height: 220)
                 .offset(x: -140, y: 90)
 

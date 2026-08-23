@@ -1,0 +1,47 @@
+import Foundation
+
+struct BundledPrayerTemplateSeed: Decodable, Identifiable {
+    let id: String
+    let title: String
+    let bodyText: String
+    let category: String?
+}
+
+enum DefaultPrayerLibrary {
+    static func load() -> [BundledPrayerTemplateSeed] {
+        guard let url = Bundle.main.url(forResource: "default_prayers", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let seeds = try? JSONDecoder().decode([BundledPrayerTemplateSeed].self, from: data) else {
+            return fallbackSeeds
+        }
+
+        return seeds
+    }
+
+    static let fallbackSeeds: [BundledPrayerTemplateSeed] = [
+        .init(
+            id: "morning-gratitude",
+            title: "아침 감사 기도",
+            bodyText: "하나님, 오늘 하루를 새롭게 열어주셔서 감사합니다. 작은 일에도 감사하며, 만나는 사람들에게 온유한 마음을 나누게 해주세요.",
+            category: "감사"
+        ),
+        .init(
+            id: "evening-examen",
+            title: "저녁 돌아봄 기도",
+            bodyText: "하나님, 오늘 하루를 돌아봅니다. 기뻤던 순간과 어려웠던 순간 속에서도 함께하셨음을 기억하게 하시고, 내일을 향한 평안을 주세요.",
+            category: "회고"
+        ),
+        .init(
+            id: "before-study",
+            title: "집중을 위한 기도",
+            bodyText: "하나님, 오늘 맡겨진 공부와 일을 성실하게 감당할 지혜와 집중을 주세요. 조급함보다 차분함을, 두려움보다 담대함을 허락해주세요.",
+            category: "일상"
+        ),
+        .init(
+            id: "for-peace",
+            title: "평안을 구하는 기도",
+            bodyText: "하나님, 흔들리는 마음을 붙들어 주세요. 내 생각과 감정을 잠잠하게 하시고, 오늘 필요한 평안과 쉼을 제 안에 채워주세요.",
+            category: "평안"
+        )
+    ]
+}

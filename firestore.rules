@@ -1,0 +1,147 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
+    function isDailyQuietTimeStatus(status) {
+      return status in ["draft", "published", "archived"];
+    }
+
+    function hasDailyQuietTimeRequiredFields(data) {
+      return data.keys().hasAll([
+        "dateKey",
+        "timezone",
+        "title",
+        "verseId",
+        "reference",
+        "translation",
+        "devotionalText",
+        "reflectionPrompt",
+        "applicationPrompt",
+        "prayerPrompt",
+        "questions",
+        "status",
+        "version",
+        "createdBy",
+        "updatedBy",
+        "createdAt",
+        "updatedAt"
+      ]);
+    }
+
+    function hasOnlyDailyQuietTimeFields(data) {
+      return data.keys().hasOnly([
+        "dateKey",
+        "timezone",
+        "title",
+        "verseId",
+        "startVerseId",
+        "endVerseId",
+        "reference",
+        "translation",
+        "devotionalText",
+        "reflectionPrompt",
+        "applicationPrompt",
+        "prayerPrompt",
+        "questions",
+        "status",
+        "version",
+        "createdBy",
+        "updatedBy",
+        "createdAt",
+        "updatedAt",
+        "publishedAt",
+        "archivedAt"
+      ]);
+    }
+
+    function hasValidDailyQuietTimeShape(data, dateKey) {
+      return hasDailyQuietTimeRequiredFields(data)
+        && hasOnlyDailyQuietTimeFields(data)
+        && data.dateKey == dateKey
+        && data.timezone is string
+        && data.title is string
+        && data.verseId is string
+        && (!data.keys().hasAny(["startVerseId"]) || data.startVerseId is string)
+        && (!data.keys().hasAny(["endVerseId"]) || data.endVerseId is string)
+        && data.reference is string
+        && data.translation is string
+        && data.devotionalText is string
+        && data.reflectionPrompt is string
+        && data.applicationPrompt is string
+        && data.prayerPrompt is string
+        && data.questions is list
+        && isDailyQuietTimeStatus(data.status)
+        && data.version is int
+        && data.createdBy is string
+        && data.updatedBy is string
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && (!data.keys().hasAny(["publishedAt"]) || data.publishedAt is timestamp)
+        && (!data.keys().hasAny(["archivedAt"]) || data.archivedAt is timestamp);
+    }
+
+    match /dailyQuietTimes/{dateKey} {
+      allow get: if isAdmin()
+        || (isSignedIn() && resource.data.status == "published");
+
+      allow list: if isAdmin();
+
+      allow create, update: if isAdmin()
+        && hasValidDailyQuietTimeShape(request.resource.data, dateKey);
+
+      allow delete: if isAdmin()
+        && resource.data.status in ["draft", "archived"];
+    }
+
+    match /users/{userId} {
+      allow read, create, update, delete: if isOwner(userId);
+
+      match /writingRecords/{recordId} {
+        allow read, create, update, delete: if isOwner(userId);
+      }
+
+      match /verseLists/{listId} {
+        allow read, create, update, delete: if isOwner(userId);
+
+        match /items/{itemId} {
+          allow read, create, update, delete: if isOwner(userId);
+        }
+      }
+
+      match /likedVerses/{verseId} {
+        allow read, create, update, delete: if isOwner(userId);
+      }
+
+      match /qtRecords/{recordId} {
+        allow read, create, update, delete: if isOwner(userId);
+      }
+
+      match /prayers/{prayerId} {
+        allow read, create, update, delete: if isOwner(userId);
+      }
+
+      match /prayerWritingRecords/{recordId} {
+        allow read, create, update, delete: if isOwner(userId);
+      }
+
+      match /writingPlans/{planId} {
+        allow read, create, update, delete: if isOwner(userId);
+
+        match /days/{dayId} {
+          allow read, create, update, delete: if isOwner(userId);
+        }
+      }
+    }
+  }
+}

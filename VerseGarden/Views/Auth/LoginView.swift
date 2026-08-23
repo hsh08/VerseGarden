@@ -4,6 +4,7 @@ struct LoginView: View {
     @EnvironmentObject private var authViewModel: AuthViewModel
     @State private var email = ""
     @State private var password = ""
+    @State private var showingPasswordReset = false
 
     let switchToSignup: () -> Void
 
@@ -14,6 +15,18 @@ struct LoginView: View {
 
             inputField(title: "이메일", text: $email, isSecure: false)
             inputField(title: "비밀번호", text: $password, isSecure: true)
+
+            Button {
+                authViewModel.clearPasswordResetStatus()
+                showingPasswordReset = true
+            } label: {
+                Text("비밀번호를 잊으셨나요?")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(GardenTheme.primary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .buttonStyle(.plain)
+            .disabled(authViewModel.isSubmitting)
 
             if let errorMessage = authViewModel.errorMessage {
                 Text(errorMessage)
@@ -37,9 +50,10 @@ struct LoginView: View {
                     .font(.headline)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.green)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .frame(minHeight: 54)
+                    .padding(.horizontal, 18)
+                    .background(GardenTheme.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.button, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(authViewModel.isSubmitting || !authViewModel.isFirebaseConfigured)
@@ -51,15 +65,20 @@ struct LoginView: View {
             } label: {
                 Text("계정이 없나요? 회원가입")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(GardenTheme.primary)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.plain)
             .disabled(authViewModel.isSubmitting)
         }
         .padding(20)
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .gardenCardSurface(background: AppColors.cardTint)
+        .sheet(isPresented: $showingPasswordReset) {
+            PasswordResetView(initialEmail: email)
+                .environmentObject(authViewModel)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+        }
     }
 
     @ViewBuilder
@@ -79,8 +98,8 @@ struct LoginView: View {
                 }
             }
             .padding()
-            .background(Color(.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(GardenTheme.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.medium, style: .continuous))
         }
     }
 }

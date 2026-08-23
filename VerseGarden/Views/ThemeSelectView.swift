@@ -26,7 +26,7 @@ struct ThemeSelectView: View {
             .padding()
         }
         .navigationTitle("테마 선택")
-        .background(Color(.systemGroupedBackground))
+        .background(GardenTheme.background)
     }
 
     private var introCard: some View {
@@ -39,9 +39,7 @@ struct ThemeSelectView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .shadow(color: Color.black.opacity(0.05), radius: 12, y: 4)
+        .gardenCardSurface()
     }
 
     private func themeCard(_ theme: ThemeItem) -> some View {
@@ -77,9 +75,7 @@ struct ThemeSelectView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: Color.black.opacity(0.05), radius: 10, y: 4)
+        .gardenCardSurface(shadowRadius: 10, shadowY: 4)
     }
 
     private func completedCount(for theme: ThemeItem) -> Int {
@@ -99,6 +95,6 @@ struct ThemeSelectView: View {
     }
 
     private func progressColor(for theme: ThemeItem) -> Color {
-        completedCount(for: theme) > 0 ? .green : .secondary
+        completedCount(for: theme) > 0 ? GardenTheme.primary : .secondary
     }
 }

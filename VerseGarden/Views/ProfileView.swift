@@ -5,15 +5,41 @@ import SwiftUI
 struct ProfileView: View {
     @EnvironmentObject private var authViewModel: AuthViewModel
     @EnvironmentObject private var userProfileStore: UserProfileStore
+    @EnvironmentObject private var reminderScheduler: ReminderScheduler
+    @EnvironmentObject private var likedVerseStore: LikedVerseStore
+    @EnvironmentObject private var gardenActivityStore: GardenActivityStore
+    @EnvironmentObject private var qtStore: QTStore
     @Query(sort: \WritingRecord.completedAt, order: .reverse) private var records: [WritingRecord]
+    @Query(sort: \PrayerWritingRecord.completedAt, order: .reverse) private var prayerRecords: [PrayerWritingRecord]
 
     @State private var draftNickname = ""
     @State private var isEditingNickname = false
-    @State private var showingLogoutConfirmation = false
+    @State private var favoriteVerseID: String?
     private let calendar = Calendar.current
+    private let bibleService = BibleDataService.shared
 
     private var currentUserRecords: [WritingRecord] {
         records.records(for: authViewModel.currentUser?.uid)
+    }
+
+    private var currentUserPrayerRecords: [PrayerWritingRecord] {
+        prayerRecords.records(for: authViewModel.currentUser?.uid)
+    }
+
+    private var timelineActivities: [GardenActivity] {
+        GardenActivityTimelineBuilder.mergedActivities(
+            writingRecords: currentUserRecords,
+            prayerRecords: currentUserPrayerRecords,
+            qtRecords: qtStore.records,
+            likedVerseRecords: likedVerseStore.getLikedVerseRecords(),
+            activityLog: gardenActivityStore.activities,
+            calendar: calendar
+        )
+    }
+
+    private var representativeVerse: LocalBibleVerse? {
+        guard let favoriteVerseID else { return nil }
+        return bibleService.getVerse(id: favoriteVerseID)
     }
 
     private var displayNickname: String {
@@ -36,28 +62,28 @@ struct ProfileView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                profileHeaderSection
-                infoSection
+            VStack(alignment: .leading, spacing: GardenTheme.sectionSpacing) {
+                VStack(spacing: 8) {
+                    profileHeaderSection
+                    accountSettingsEntrySection
+                }
+                representativeVerseSection
                 statsSection
-                actionSection
+                verseListEntrySection
+                reminderSection
+                communitySection
             }
-            .padding(20)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, AppSpacing.tabBarBottomPadding)
         }
         .navigationTitle("계정")
-        .background(Color(.systemGroupedBackground))
-        .alert("로그아웃", isPresented: $showingLogoutConfirmation) {
-            Button("취소", role: .cancel) {}
-            Button("로그아웃", role: .destructive) {
-                authViewModel.signOut()
-            }
-        } message: {
-            Text("정말 로그아웃하시겠습니까?")
-        }
+        .background(GardenTheme.background)
         .onAppear {
             if let nickname = userProfileStore.profile?.nickname {
                 draftNickname = nickname
             }
+            loadFavoriteVerseID()
         }
         .onChange(of: userProfileStore.profile?.nickname) { _, nickname in
             if let nickname {
@@ -66,6 +92,12 @@ struct ProfileView: View {
                     isEditingNickname = false
                 }
             }
+        }
+        .onChange(of: authViewModel.currentUser?.uid) { _, _ in
+            loadFavoriteVerseID()
+        }
+        .onChange(of: userProfileStore.profile?.favoriteVerseId) { _, _ in
+            loadFavoriteVerseID()
         }
     }
 
@@ -86,7 +118,7 @@ struct ProfileView: View {
                     Circle()
                         .fill(
                             LinearGradient(
-                                colors: [Color.green.opacity(0.82), Color.mint.opacity(0.72)],
+                                colors: [GardenTheme.primary.opacity(0.82), GardenTheme.secondary.opacity(0.72)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -99,9 +131,19 @@ struct ProfileView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("내 계정")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        Text("내 가든")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(GardenTheme.primary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(GardenTheme.softFill)
+                            .clipShape(Capsule())
+
+                        Text("오늘도 자라는 중")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppColors.secondaryText)
+                    }
 
                     if isEditingNickname {
                         VStack(alignment: .leading, spacing: 10) {
@@ -126,7 +168,7 @@ struct ProfileView: View {
                                         .foregroundStyle(.white)
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 8)
-                                        .background(Color.green)
+                                        .background(GardenTheme.primary)
                                         .clipShape(Capsule())
                                 }
                                 .buttonStyle(.plain)
@@ -137,14 +179,18 @@ struct ProfileView: View {
                         HStack(alignment: .center, spacing: 12) {
                             Text(displayNickname)
                                 .font(.title2.bold())
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(AppColors.primaryText)
 
                             Button("수정") {
                                 draftNickname = userProfileStore.profile?.nickname ?? ""
                                 isEditingNickname = true
                             }
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.green)
+                            .foregroundStyle(GardenTheme.primary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(GardenTheme.softFill)
+                            .clipShape(Capsule())
                         }
                     }
                 }
@@ -154,51 +200,457 @@ struct ProfileView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(22)
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .shadow(color: Color.black.opacity(0.05), radius: 18, x: 0, y: 8)
+        .gardenCardSurface(background: AppColors.cardTint, shadowRadius: AppShadows.elevatedRadius, shadowY: AppShadows.elevatedY)
     }
 
-    private var infoSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("기본 정보")
-                .font(.title3.bold())
+    private var accountSettingsEntrySection: some View {
+        NavigationLink {
+            AccountSettingsView(
+                email: userProfileStore.profile?.email ?? authViewModel.currentUser?.email ?? "-",
+                joinedAtText: userProfileStore.profile?.createdAt.formatted(.dateTime.year().month().day()) ?? "-",
+                canChangePassword: authViewModel.canChangePassword,
+                onLogout: {
+                    authViewModel.signOut()
+                }
+            )
+        } label: {
+            accountSettingsEntryLabel
+        }
+        .buttonStyle(.plain)
+    }
 
-            VStack(spacing: 0) {
-                settingsRow(title: "이메일", value: userProfileStore.profile?.email ?? authViewModel.currentUser?.email ?? "-")
-                Divider()
-                    .padding(.leading, 16)
-                settingsRow(
-                    title: "가입일",
-                    value: userProfileStore.profile?.createdAt.formatted(.dateTime.year().month().day()) ?? "-"
+    private var accountSettingsEntryLabel: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "person.crop.circle.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(GardenTheme.primary)
+                .frame(width: 32, height: 32)
+                .background(GardenTheme.primary.opacity(0.12))
+                .clipShape(Circle())
+
+            Text("계정 설정")
+                .font(.headline)
+                .foregroundStyle(AppColors.primaryText)
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(AppColors.secondaryText)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .gardenCardSurface(
+            background: GardenTheme.cardBackground,
+            border: AppColors.border.opacity(0.72),
+            cornerRadius: AppRadius.card,
+            shadowRadius: 8,
+            shadowY: 3
+        )
+    }
+
+    private var representativeVerseSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            GardenSectionHeader("대표 말씀", subtitle: "나의 가든에 오래 남길 말씀입니다.")
+
+            GardenCard(
+                accentGradient: LinearGradient(
+                    colors: [GardenTheme.primary.opacity(0.20), AppColors.cardTint.opacity(0.62)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
                 )
+            ) {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let representativeVerse {
+                        Text("나의 대표 말씀")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(GardenTheme.primary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.white.opacity(0.66))
+                            .clipShape(Capsule())
+
+                        Text(representativeVerse.referenceText)
+                            .font(.headline)
+                            .foregroundStyle(GardenTheme.secondary)
+
+                        Text(representativeVerse.text)
+                            .font(.subheadline)
+                            .foregroundStyle(AppColors.primaryText)
+                            .lineSpacing(5)
+                            .lineLimit(3)
+
+                        NavigationLink {
+                            FavoriteVersePickerView(selectedVerseID: favoriteVerseID) { verse in
+                                saveFavoriteVerseID(verse.id)
+                            }
+                        } label: {
+                            profileInlineAction(title: "변경하기", icon: "arrow.triangle.2.circlepath")
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        EmptyStateView(
+                            icon: "book.pages.fill",
+                            title: "아직 대표 말씀이 없어요",
+                            message: "삶의 기준이 되는 말씀을 하나 선택해보세요."
+                        )
+
+                        NavigationLink {
+                            FavoriteVersePickerView(selectedVerseID: favoriteVerseID) { verse in
+                                saveFavoriteVerseID(verse.id)
+                            }
+                        } label: {
+                            GardenPrimaryButtonLabel(title: "대표 말씀 선택하기", icon: "book.pages.fill")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
-            .background(Color(.secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .shadow(color: Color.black.opacity(0.03), radius: 12, x: 0, y: 4)
         }
     }
 
     private var statsSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("요약 통계")
-                .font(.title3.bold())
+            GardenSectionHeader("요약 통계", subtitle: "Garden 활동 기록을 기준으로 집계합니다.")
 
             HStack(spacing: 12) {
-                StatSummaryCard(title: "총 필사 수", value: "\(currentUserRecords.count)", unit: "회")
                 StatSummaryCard(
-                    title: "연속 필사일",
-                    value: "\(StreakCalculator.currentStreak(from: currentUserRecords, calendar: calendar))",
-                    unit: "일"
+                    title: "총 활동 수",
+                    value: "\(GardenActivityTimelineBuilder.gardenGrowthActivities(from: timelineActivities).count)",
+                    unit: "회",
+                    accent: GardenTheme.primary
+                )
+                StatSummaryCard(
+                    title: "연속 루틴",
+                    value: "\(GardenActivityTimelineBuilder.currentStreak(from: timelineActivities, calendar: calendar))",
+                    unit: "일",
+                    accent: GardenTheme.secondary
+                )
+            }
+
+            HStack(spacing: 12) {
+                StatSummaryCard(
+                    title: "말씀 읽기",
+                    value: "\(activityCount(for: .verseRead))",
+                    unit: "회",
+                    accent: GardenTheme.primary
+                )
+                StatSummaryCard(
+                    title: "필사 완료",
+                    value: "\(activityCount(for: .scriptureCopy))",
+                    unit: "회",
+                    accent: GardenTheme.secondary
+                )
+            }
+
+            HStack(spacing: 12) {
+                StatSummaryCard(
+                    title: "기도 기록",
+                    value: "\(activityCount(for: .prayer))",
+                    unit: "회",
+                    accent: GardenTheme.tertiary
+                )
+                StatSummaryCard(
+                    title: "QT 완료",
+                    value: "\(activityCount(for: .qtCompleted))",
+                    unit: "회",
+                    accent: GardenTheme.primary
                 )
             }
         }
     }
 
-    private var actionSection: some View {
+    private func activityCount(for type: GardenActivityType) -> Int {
+        timelineActivities.filter { $0.type == type }.count
+    }
+
+    private var verseListEntrySection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("계정 관리")
-                .font(.title3.bold())
+            GardenSectionHeader("VerseList", subtitle: "좋아하거나 다시 보고 싶은 말씀을 모아둡니다.")
+
+            VStack(spacing: 10) {
+                NavigationLink {
+                    VerseListView()
+                } label: {
+                    profileEntryCard(
+                        title: "내가 저장한 말씀",
+                        subtitle: "\(likedVerseStore.likedCount)개 저장됨 · 마음에 남은 말씀을 다시 봅니다.",
+                        icon: "heart.fill",
+                        tint: GardenTheme.tertiary
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    MyVerseListView()
+                } label: {
+                    profileEntryCard(
+                        title: "내 말씀 리스트",
+                        subtitle: "직접 만든 말씀 리스트를 관리합니다.",
+                        icon: "bookmark.fill",
+                        tint: GardenTheme.primary
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var reminderSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            GardenSectionHeader("리마인더", subtitle: "작은 습관을 잊지 않도록 도와줍니다.")
+
+            NavigationLink {
+                ReminderSettingsView()
+            } label: {
+                HStack(spacing: 14) {
+                    Image(systemName: "bell.badge.fill")
+                        .font(.headline)
+                        .foregroundStyle(reminderScheduler.reminderEnabled ? GardenTheme.primary : AppColors.subtleText)
+                        .frame(width: 42, height: 42)
+                        .background((reminderScheduler.reminderEnabled ? GardenTheme.primary : AppColors.border).opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: AppRadius.medium, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            Text("매일 알림")
+                                .font(.headline)
+                                .foregroundStyle(AppColors.primaryText)
+                            reminderBadge
+                        }
+                        Text(reminderSummary)
+                            .font(.subheadline)
+                            .foregroundStyle(AppColors.secondaryText)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AppColors.secondaryText)
+                }
+                .padding(18)
+                .gardenCardSurface(background: GardenTheme.cardBackground, cornerRadius: AppRadius.card, shadowRadius: 8, shadowY: 4)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var communitySection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            GardenSectionHeader("공동체", subtitle: "함께 큐티하는 경험을 곧 제공할 예정이에요.")
+
+            GardenCard(
+                accentGradient: LinearGradient(
+                    colors: [GardenTheme.primary.opacity(0.20), GardenTheme.tertiary.opacity(0.18)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            ) {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "person.2.fill")
+                            .font(.headline)
+                            .foregroundStyle(GardenTheme.primary)
+                            .frame(width: 40, height: 40)
+                            .background(Color.white.opacity(0.62))
+                            .clipShape(Circle())
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("공동체 큐티는 곧 함께 사용할 수 있어요")
+                                .font(.headline)
+                                .foregroundStyle(AppColors.primaryText)
+                            Text("초대 코드는 공동체 기능이 열리면 사용할 수 있어요.")
+                                .font(.subheadline)
+                                .foregroundStyle(AppColors.secondaryText)
+                        }
+                    }
+
+                    Button {} label: {
+                        HStack {
+                            Text("초대 코드 입력")
+                                .font(.subheadline.weight(.bold))
+                            Spacer()
+                            Text("예정")
+                                .font(.caption.weight(.bold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(AppColors.border.opacity(0.45))
+                                .clipShape(Capsule())
+                        }
+                        .foregroundStyle(AppColors.subtleText)
+                        .frame(minHeight: 46)
+                        .padding(.horizontal, 14)
+                        .background(AppColors.cardTint.opacity(0.58))
+                        .clipShape(RoundedRectangle(cornerRadius: AppRadius.button, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: AppRadius.button, style: .continuous)
+                                .stroke(AppColors.border.opacity(0.62), lineWidth: 1)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(true)
+                }
+            }
+        }
+    }
+
+    private var reminderSummary: String {
+        if reminderScheduler.reminderEnabled {
+            return String(format: "매일 %02d:%02d", reminderScheduler.reminderHour, reminderScheduler.reminderMinute)
+        }
+        return "알림이 꺼져 있어요"
+    }
+
+    private var reminderBadge: some View {
+        Text(reminderScheduler.reminderEnabled ? "켜짐" : "꺼짐")
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(reminderScheduler.reminderEnabled ? GardenTheme.primary : AppColors.subtleText)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background((reminderScheduler.reminderEnabled ? GardenTheme.primary : AppColors.border).opacity(0.12))
+            .clipShape(Capsule())
+    }
+
+    private func profileEntryCard(title: String, subtitle: String, icon: String, tint: Color) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.headline)
+                .foregroundStyle(tint)
+                .frame(width: 42, height: 42)
+                .background(tint.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: AppRadius.medium, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(AppColors.primaryText)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(AppColors.secondaryText)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(AppColors.secondaryText)
+        }
+        .padding(16)
+        .gardenCardSurface(
+            background: GardenTheme.cardBackground,
+            border: AppColors.border.opacity(0.72),
+            cornerRadius: AppRadius.card,
+            shadowRadius: 8,
+            shadowY: 4
+        )
+    }
+
+    private func profileInlineAction(title: String, icon: String) -> some View {
+        HStack {
+            Image(systemName: icon)
+                .font(.subheadline.weight(.bold))
+            Text(title)
+                .font(.subheadline.weight(.bold))
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.bold))
+        }
+        .foregroundStyle(GardenTheme.primary)
+        .frame(minHeight: 46)
+        .padding(.horizontal, 14)
+        .background(GardenTheme.softFill)
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.button, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: AppRadius.button, style: .continuous)
+                .stroke(GardenTheme.softStroke, lineWidth: 1)
+        }
+    }
+
+    private func loadFavoriteVerseID() {
+        favoriteVerseID = userProfileStore.profile?.favoriteVerseId
+    }
+
+    private func saveFavoriteVerseID(_ verseID: String) {
+        favoriteVerseID = verseID
+        Task {
+            await userProfileStore.updateFavoriteVerseId(verseID, for: authViewModel.currentUser)
+        }
+    }
+
+}
+
+private struct AccountSettingsView: View {
+    let email: String
+    let joinedAtText: String
+    let canChangePassword: Bool
+    let onLogout: () -> Void
+
+    @State private var showingLogoutConfirmation = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: GardenTheme.sectionSpacing) {
+                basicInfoSection
+                accountManagementSection
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, AppSpacing.tabBarBottomPadding)
+        }
+        .navigationTitle("계정 설정")
+        .navigationBarTitleDisplayMode(.inline)
+        .background(GardenTheme.background)
+        .alert("로그아웃", isPresented: $showingLogoutConfirmation) {
+            Button("취소", role: .cancel) {}
+            Button("로그아웃", role: .destructive) {
+                onLogout()
+            }
+        } message: {
+            Text("정말 로그아웃하시겠습니까?")
+        }
+    }
+
+    private var basicInfoSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            GardenSectionHeader("기본 정보")
+
+            VStack(spacing: 0) {
+                settingsRow(title: "이메일", value: email)
+                Divider()
+                    .padding(.leading, 16)
+                settingsRow(title: "가입일", value: joinedAtText)
+            }
+            .gardenCardSurface(background: AppColors.cardTint, cornerRadius: AppRadius.medium, shadowRadius: 12, shadowY: 4)
+        }
+    }
+
+    private var accountManagementSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            GardenSectionHeader("계정 관리")
+
+            if canChangePassword {
+                NavigationLink {
+                    ChangePasswordView()
+                } label: {
+                    accountActionRow(
+                        title: "비밀번호 변경",
+                        subtitle: "현재 비밀번호 확인 후 새 비밀번호로 변경합니다.",
+                        icon: "lock.fill",
+                        tint: GardenTheme.primary
+                    )
+                }
+                .buttonStyle(.plain)
+            } else {
+                accountActionRow(
+                    title: "비밀번호 변경",
+                    subtitle: "이 계정은 비밀번호 변경을 지원하지 않습니다.",
+                    icon: "lock.slash",
+                    tint: AppColors.subtleText
+                )
+                .opacity(0.72)
+            }
 
             Button {
                 showingLogoutConfirmation = true
@@ -219,17 +671,54 @@ struct ProfileView: View {
         }
     }
 
+    private func accountActionRow(title: String, subtitle: String, icon: String, tint: Color) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.headline)
+                .foregroundStyle(tint)
+                .frame(width: 42, height: 42)
+                .background(tint.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: AppRadius.medium, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(AppColors.primaryText)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(AppColors.secondaryText)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            if canChangePassword {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppColors.secondaryText)
+            }
+        }
+        .padding(16)
+        .gardenCardSurface(
+            background: GardenTheme.cardBackground,
+            border: AppColors.border.opacity(0.72),
+            cornerRadius: AppRadius.card,
+            shadowRadius: 8,
+            shadowY: 4
+        )
+    }
+
     private func settingsRow(title: String, value: String) -> some View {
         HStack(spacing: 12) {
             Text(title)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
+                .foregroundStyle(AppColors.primaryText)
 
             Spacer()
 
             Text(value)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppColors.secondaryText)
                 .multilineTextAlignment(.trailing)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -242,29 +731,31 @@ private struct StatSummaryCard: View {
     let title: String
     let value: String
     let unit: String
+    var accent: Color = GardenTheme.primary
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppColors.secondaryText)
 
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
-                    .foregroundStyle(.primary)
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundStyle(AppColors.primaryText)
+                    .monospacedDigit()
                 Text(unit)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(accent)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .background(Color.green.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(accent.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.medium, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.green.opacity(0.10), lineWidth: 1)
+            RoundedRectangle(cornerRadius: AppRadius.medium, style: .continuous)
+                .stroke(accent.opacity(0.12), lineWidth: 0.8)
         }
     }
 }

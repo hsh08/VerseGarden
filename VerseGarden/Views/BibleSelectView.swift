@@ -17,14 +17,14 @@ struct BibleSelectView: View {
                     title: "구약",
                     subtitle: "창세기부터 말라기까지",
                     testament: BibleTestament.old.rawValue,
-                    accent: .green
+                    accent: GardenTheme.primary
                 )
 
                 testamentSection(
                     title: "신약",
                     subtitle: "마태복음부터 요한계시록까지",
                     testament: BibleTestament.new.rawValue,
-                    accent: .mint
+                    accent: GardenTheme.secondary
                 )
 
                 sourceCard
@@ -32,7 +32,7 @@ struct BibleSelectView: View {
             .padding()
         }
         .navigationTitle("성경 직접 선택")
-        .background(Color(.systemGroupedBackground))
+        .background(GardenTheme.background)
     }
 
     private var introCard: some View {
@@ -47,7 +47,7 @@ struct BibleSelectView: View {
         .padding()
         .background(
             LinearGradient(
-                colors: [Color.green.opacity(0.18), Color.mint.opacity(0.08)],
+                colors: [GardenTheme.primary.opacity(0.18), GardenTheme.secondary.opacity(0.08)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -94,7 +94,7 @@ struct BibleSelectView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding()
-                .background(Color(.secondarySystemBackground))
+                .background(AppColors.cardTint)
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
             .buttonStyle(.plain)
@@ -111,7 +111,7 @@ struct BibleSelectView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(Color(.secondarySystemBackground))
+        .background(AppColors.cardTint)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }

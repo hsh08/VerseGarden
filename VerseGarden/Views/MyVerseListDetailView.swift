@@ -2,6 +2,11 @@ import FirebaseAuth
 import SwiftData
 import SwiftUI
 
+@MainActor
+private enum VerseListDetailFetchCache {
+    static var fetchedRemoteListIDs: Set<String> = []
+}
+
 struct MyVerseListDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -25,8 +30,24 @@ struct MyVerseListDetailView: View {
     @State private var pendingDeleteEntireList = false
     @State private var isApplyingPendingChanges = false
     @State private var showingDiscardChangesAlert = false
+    @State private var cachedListItems: [MyVerseListItem] = []
+    @State private var cachedDisplaySections: [ListVerseSection] = []
+    @State private var cachedOrderedListVerses: [LocalBibleVerse] = []
+    @State private var isFetchingItems = false
 
     private let service = BibleDataService.shared
+
+    private var localItemsSignature: String {
+        let userItems = allItems
+            .items(for: authViewModel.currentUser?.uid)
+            .filter { $0.listId == list.id }
+        let itemSignature = userItems
+            .map {
+                "\($0.id.uuidString)|\($0.book)|\($0.chapter)|\($0.verse)|\($0.createdAt.timeIntervalSince1970)|\($0.remoteDocumentId ?? "")"
+            }
+            .joined(separator: ",")
+        return "\(authViewModel.currentUser?.uid ?? "no-user")||\(list.id.uuidString)||\(itemSignature)"
+    }
 
     var body: some View {
         ScrollView {
@@ -50,7 +71,7 @@ struct MyVerseListDetailView: View {
                     .padding()
                     .background(
                         LinearGradient(
-                            colors: [Color.green, Color.mint],
+                            colors: [GardenTheme.primary, GardenTheme.secondary],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -88,7 +109,7 @@ struct MyVerseListDetailView: View {
         }
         .navigationTitle(list.title)
         .navigationBarBackButtonHidden(true)
-        .background(Color(.systemGroupedBackground))
+        .background(GardenTheme.background)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
@@ -192,12 +213,13 @@ struct MyVerseListDetailView: View {
         .task(id: list.remoteDocumentId) {
             await fetchRemoteItemsIfNeeded()
         }
+        .task(id: localItemsSignature) {
+            refreshLocalCaches()
+        }
     }
 
     private var listItems: [MyVerseListItem] {
-        allItems
-            .items(for: authViewModel.currentUser?.uid)
-            .filter { $0.listId == list.id }
+        cachedListItems
     }
 
     private var hasPendingManageChanges: Bool {
@@ -209,26 +231,11 @@ struct MyVerseListDetailView: View {
     }
 
     private var displaySections: [ListVerseSection] {
-        let grouped = Dictionary(grouping: listItems) { item in
-            ListVerseSectionKey(book: item.book, chapter: item.chapter)
-        }
+        cachedDisplaySections
+    }
 
-        return grouped
-            .map { key, items in
-                let sortedItems = items.sorted { $0.verse < $1.verse }
-                let verses = sortedItems.compactMap {
-                    service.getVerse(book: $0.book, chapter: $0.chapter, verse: $0.verse)
-                }
-
-                return ListVerseSection(
-                    key: key,
-                    items: sortedItems,
-                    verses: verses,
-                    totalChapterVerseCount: service.getVerses(book: key.book, chapter: key.chapter).count,
-                    createdAt: sortedItems.map(\.createdAt).min() ?? .distantPast
-                )
-            }
-            .sorted { $0.createdAt < $1.createdAt }
+    private var orderedListVerses: [LocalBibleVerse] {
+        cachedOrderedListVerses
     }
 
     private var headerCard: some View {
@@ -242,7 +249,7 @@ struct MyVerseListDetailView: View {
             }
             Text("\(listItems.count)개 구절")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.green)
+                .foregroundStyle(GardenTheme.primary)
             if displaySections.contains(where: { $0.items.count > 1 }) {
                 Text("같은 장의 구절은 폴더처럼 접어서 볼 수 있습니다.")
                     .font(.caption)
@@ -251,7 +258,7 @@ struct MyVerseListDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
-        .background(Color(.secondarySystemBackground))
+        .background(AppColors.cardTint)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
@@ -259,7 +266,7 @@ struct MyVerseListDetailView: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "checklist")
                 .font(.title3)
-                .foregroundStyle(.green)
+                .foregroundStyle(GardenTheme.primary)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("구절 편집 중")
@@ -273,7 +280,7 @@ struct MyVerseListDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .background(Color.green.opacity(0.08))
+        .background(GardenTheme.primary.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
@@ -292,8 +299,17 @@ struct MyVerseListDetailView: View {
                 }
                 .buttonStyle(.plain)
             } else {
+                let contextIndex = orderedListVerses.firstIndex(of: verse) ?? 0
                 NavigationLink {
-                    WriteView(localVerse: verse, sourceType: .customList)
+                    WriteView(
+                        localVerse: verse,
+                        sourceType: .customList,
+                        writingContext: .verseList(
+                            listId: list.id,
+                            verses: orderedListVerses,
+                            currentIndex: contextIndex
+                        )
+                    )
                 } label: {
                     itemCard(
                         verse: verse,
@@ -389,11 +405,11 @@ struct MyVerseListDetailView: View {
             } label: {
                 HStack(alignment: .top, spacing: 14) {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.green.opacity(0.12))
+                        .fill(GardenTheme.primary.opacity(0.12))
                         .frame(width: 48, height: 48)
                         .overlay {
                             Image(systemName: isExpanded(section.key.id) ? "folder.fill" : "folder")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(GardenTheme.primary)
                         }
 
                     VStack(alignment: .leading, spacing: 6) {
@@ -406,7 +422,7 @@ struct MyVerseListDetailView: View {
                             .foregroundStyle(.secondary)
                         Text(isExpanded(section.key.id) ? "접기" : "펼쳐서 보기")
                             .font(.caption.weight(.semibold))
-                            .foregroundColor(.green)
+                            .foregroundColor(GardenTheme.primary)
                         if section.items.allSatisfy({ isPendingDeletion($0) }) {
                             Text("이 폴더의 구절이 모두 삭제 예정입니다.")
                                 .font(.caption)
@@ -431,7 +447,7 @@ struct MyVerseListDetailView: View {
                         toggleSectionSelection(section)
                     }
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(GardenTheme.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .buttonStyle(.plain)
 
@@ -459,7 +475,7 @@ struct MyVerseListDetailView: View {
                 .padding(.top, 12)
             }
         }
-        .background(Color(.secondarySystemBackground))
+        .background(AppColors.cardTint)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
@@ -508,7 +524,7 @@ struct MyVerseListDetailView: View {
 
     private func iconBackgroundColor(isSelected: Bool, isPendingDeletion: Bool) -> Color {
         if isPendingDeletion { return Color.red.opacity(0.12) }
-        return isSelected ? Color.green.opacity(0.18) : Color.green.opacity(0.12)
+        return isSelected ? GardenTheme.primary.opacity(0.18) : GardenTheme.primary.opacity(0.12)
     }
 
     private func iconName(isSelectable: Bool, isSelected: Bool, isPendingDeletion: Bool) -> String {
@@ -517,7 +533,7 @@ struct MyVerseListDetailView: View {
     }
 
     private func iconForegroundColor(isPendingDeletion: Bool) -> Color {
-        isPendingDeletion ? .red : .green
+        isPendingDeletion ? .red : GardenTheme.primary
     }
 
     private func trailingIconName(isSelectable: Bool, isSelected: Bool, isPendingDeletion: Bool) -> String {
@@ -527,16 +543,16 @@ struct MyVerseListDetailView: View {
 
     private func trailingIconColor(isSelected: Bool, isPendingDeletion: Bool) -> Color {
         if isPendingDeletion { return .red }
-        return isSelected ? .green : .secondary
+        return isSelected ? GardenTheme.primary : .secondary
     }
 
     private func cardBackgroundColor(isPendingDeletion: Bool) -> Color {
-        isPendingDeletion ? Color.red.opacity(0.06) : Color(.secondarySystemBackground)
+        isPendingDeletion ? Color.red.opacity(0.06) : AppColors.cardTint
     }
 
     private func borderColor(isSelected: Bool, isPendingDeletion: Bool) -> Color {
         if isPendingDeletion { return Color.red.opacity(0.35) }
-        return isSelected ? Color.green.opacity(0.45) : .clear
+        return isSelected ? GardenTheme.primary.opacity(0.45) : .clear
     }
 
     private func addVersesToList(_ verses: [LocalBibleVerse]) {
@@ -570,13 +586,19 @@ struct MyVerseListDetailView: View {
                     userID: authViewModel.currentUser?.uid,
                     modelContext: modelContext
                 )
+                refreshWidgetPayload()
             }
+        } else {
+            refreshWidgetPayload()
         }
     }
 
     private func fetchRemoteItemsIfNeeded() async {
-        guard authViewModel.currentUser != nil, list.remoteDocumentId != nil else { return }
+        guard authViewModel.currentUser != nil, let remoteListID = list.remoteDocumentId else { return }
+        guard !isFetchingItems else { return }
+        guard !VerseListDetailFetchCache.fetchedRemoteListIDs.contains(remoteListID) else { return }
 
+        isFetchingItems = true
         isLoadingRemoteItems = true
         await verseListSyncCoordinator.syncItemsForList(
             listID: list.id,
@@ -584,6 +606,42 @@ struct MyVerseListDetailView: View {
             modelContext: modelContext
         )
         isLoadingRemoteItems = false
+        isFetchingItems = false
+        VerseListDetailFetchCache.fetchedRemoteListIDs.insert(remoteListID)
+    }
+
+    private func refreshLocalCaches() {
+        let filteredItems = allItems
+            .items(for: authViewModel.currentUser?.uid)
+            .filter { $0.listId == list.id }
+
+        cachedListItems = filteredItems
+        cachedOrderedListVerses = filteredItems.compactMap {
+            service.getVerse(book: $0.book, chapter: $0.chapter, verse: $0.verse)
+        }
+
+        let grouped = Dictionary(grouping: filteredItems) { item in
+            ListVerseSectionKey(book: item.book, chapter: item.chapter)
+        }
+
+        cachedDisplaySections = grouped
+            .map { key, items in
+                let sortedItems = items.sorted { $0.verse < $1.verse }
+                let verses = sortedItems.compactMap {
+                    service.getVerse(book: $0.book, chapter: $0.chapter, verse: $0.verse)
+                }
+
+                return ListVerseSection(
+                    key: key,
+                    items: sortedItems,
+                    verses: verses,
+                    totalChapterVerseCount: service.getVerses(book: key.book, chapter: key.chapter).count,
+                    createdAt: sortedItems.map(\.createdAt).min() ?? .distantPast
+                )
+            }
+            .sorted { $0.createdAt < $1.createdAt }
+
+        refreshWidgetPayload()
     }
 
     private var deleteItemAlertBinding: Binding<Bool> {
@@ -607,6 +665,7 @@ struct MyVerseListDetailView: View {
                 userID: authViewModel.currentUser?.uid,
                 modelContext: modelContext
             )
+            refreshWidgetPayload()
         }
     }
 
@@ -631,6 +690,7 @@ struct MyVerseListDetailView: View {
                 userID: authViewModel.currentUser?.uid,
                 modelContext: modelContext
             )
+            refreshWidgetPayload()
             dismiss()
         }
     }
@@ -689,6 +749,7 @@ struct MyVerseListDetailView: View {
                         modelContext: modelContext
                     )
                 }
+                refreshWidgetPayload()
                 await MainActor.run {
                     isApplyingPendingChanges = false
                     pendingDeletedItemIDs.removeAll()
@@ -706,6 +767,7 @@ struct MyVerseListDetailView: View {
                     modelContext: modelContext
                 )
             }
+            refreshWidgetPayload()
 
             await MainActor.run {
                 pendingDeletedItemIDs.removeAll()
@@ -715,6 +777,13 @@ struct MyVerseListDetailView: View {
                 isManagingVerses = false
             }
         }
+    }
+
+    private func refreshWidgetPayload() {
+        WidgetPayloadWriter.refresh(
+            userID: authViewModel.currentUser?.uid,
+            savedVerseItems: allItems
+        )
     }
 
     private func handleBackNavigation() {

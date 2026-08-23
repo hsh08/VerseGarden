@@ -11,18 +11,18 @@ struct BibleVerseCard: View {
             HStack(alignment: .center) {
                 Text("\(verseNumber)절")
                     .font(.headline)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(GardenTheme.primary)
 
                 Spacer()
 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.subheadline)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(GardenTheme.primary)
                 } else if isCompleted {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.subheadline)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(GardenTheme.primary)
                 } else {
                     Image(systemName: "doc.text")
                         .font(.subheadline)
@@ -39,21 +39,21 @@ struct BibleVerseCard: View {
             if isSelected {
                 Text("추가할 구절")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(GardenTheme.primary)
             } else if isCompleted {
                 Text("필사 완료")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(GardenTheme.primary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .background(isSelected ? Color.green.opacity(0.08) : Color(.systemBackground))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(isSelected ? Color.green.opacity(0.4) : isCompleted ? Color.green.opacity(0.18) : Color.clear, lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: Color.black.opacity(0.05), radius: 10, y: 4)
+        .gardenCardSurface(
+            background: isSelected ? GardenTheme.softFill : GardenTheme.cardBackground,
+            border: isSelected ? GardenTheme.primary.opacity(0.36) : isCompleted ? GardenTheme.primary.opacity(0.16) : AppColors.border.opacity(0.45),
+            cornerRadius: AppRadius.card,
+            shadowRadius: 10,
+            shadowY: 4
+        )
     }
 }

@@ -1,0 +1,14 @@
+{
+  "name": "verse-garden-admin-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "One-time Firebase Admin utilities for VerseGarden.",
+  "scripts": {
+    "admin:set": "node ./set-admin-claim.js set",
+    "admin:remove": "node ./set-admin-claim.js remove",
+    "admin:check": "node ./set-admin-claim.js check"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  }
+}

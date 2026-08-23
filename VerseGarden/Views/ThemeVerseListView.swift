@@ -18,8 +18,17 @@ struct ThemeVerseListView: View {
                 headerCard
 
                 ForEach(resolvedVerses) { item in
+                    let contextIndex = resolvedVerses.firstIndex(where: { $0.id == item.id }) ?? 0
                     NavigationLink {
-                        WriteView(localVerse: item.verse, sourceType: .theme)
+                        WriteView(
+                            localVerse: item.verse,
+                            sourceType: .theme,
+                            writingContext: .theme(
+                                themeId: theme.id,
+                                verses: resolvedVerses.map(\.verse),
+                                currentIndex: contextIndex
+                            )
+                        )
                     } label: {
                         ThemeVerseCard(
                             locationText: "\(item.verse.book) \(item.verse.chapter):\(item.verse.verse)",
@@ -34,7 +43,7 @@ struct ThemeVerseListView: View {
             .padding()
         }
         .navigationTitle(theme.title)
-        .background(Color(.systemGroupedBackground))
+        .background(GardenTheme.background)
     }
 
     private var resolvedVerses: [ResolvedThemeVerse] {
@@ -59,7 +68,7 @@ struct ThemeVerseListView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
-        .background(Color(.systemBackground))
+        .background(GardenTheme.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .shadow(color: Color.black.opacity(0.05), radius: 12, y: 4)
     }
@@ -112,7 +121,7 @@ private struct ThemeVerseCard: View {
                 if isCompleted {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.subheadline)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(GardenTheme.primary)
                 }
             }
 
@@ -125,15 +134,15 @@ private struct ThemeVerseCard: View {
             if isCompleted {
                 Text("필사 완료")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(GardenTheme.primary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .background(Color(.systemBackground))
+        .background(GardenTheme.cardBackground)
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(isCompleted ? Color.green.opacity(0.18) : Color.clear, lineWidth: 1)
+                .stroke(isCompleted ? GardenTheme.primary.opacity(0.18) : Color.clear, lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .shadow(color: Color.black.opacity(0.05), radius: 10, y: 4)

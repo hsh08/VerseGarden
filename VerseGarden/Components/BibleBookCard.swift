@@ -22,7 +22,7 @@ struct BibleBookCard: View {
 
                 Image(systemName: isFullyCompleted ? "checkmark.circle.fill" : startedChapterCount > 0 ? "book.fill" : "book.closed")
                     .font(.title3)
-                    .foregroundStyle(isFullyCompleted || startedChapterCount > 0 ? .green : .secondary)
+                    .foregroundStyle(isFullyCompleted || startedChapterCount > 0 ? GardenTheme.primary : .secondary)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -31,14 +31,12 @@ struct BibleBookCard: View {
                     .foregroundStyle(statusColor)
 
                 ProgressView(value: progressValue)
-                    .tint(.green)
+                    .tint(GardenTheme.primary)
             }
         }
         .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
         .padding(18)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .shadow(color: Color.black.opacity(0.05), radius: 10, y: 4)
+        .gardenCardSurface()
     }
 
     private var progressValue: Double {
@@ -57,6 +55,6 @@ struct BibleBookCard: View {
     }
 
     private var statusColor: Color {
-        startedChapterCount > 0 || isFullyCompleted ? .green : .secondary
+        startedChapterCount > 0 || isFullyCompleted ? GardenTheme.primary : .secondary
     }
 }

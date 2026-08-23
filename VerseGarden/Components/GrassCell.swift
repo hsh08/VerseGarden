@@ -25,19 +25,19 @@ struct GrassCell: View {
     static func fillColor(for count: Int) -> Color {
         switch count {
         case 0:
-            return Color(red: 0.92, green: 0.94, blue: 0.93)
+            return AppColors.grassInactive
         case 1:
-            return Color(red: 0.77, green: 0.91, blue: 0.75)
+            return AppColors.grassLevel1
         case 2:
-            return Color(red: 0.49, green: 0.78, blue: 0.48)
+            return AppColors.grassLevel2
         case 3:
-            return Color(red: 0.23, green: 0.63, blue: 0.31)
+            return AppColors.grassLevel3
         default:
-            return Color(red: 0.10, green: 0.42, blue: 0.18)
+            return AppColors.grassLevel4
         }
     }
 
     static func strokeColor(for count: Int) -> Color {
-        count == 0 ? Color.black.opacity(0.04) : Color.black.opacity(0.08)
+        count == 0 ? AppColors.border.opacity(0.55) : GardenTheme.primary.opacity(0.18)
     }
 }

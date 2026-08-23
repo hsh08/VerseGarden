@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+
+# Node dependencies
+node_modules/
+admin-web/node_modules/
+admin-tools/node_modules/
+admin-web/.next/
+admin-web/tsconfig.tsbuildinfo
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+!.env.local.example
+!admin-web/.env.local.example
+admin-web/src/generated/bible_krv_full.json
+
+# Firebase Admin credentials
+admin-tools/credentials/
+admin-tools/.env
+admin-tools/.env.*
+admin-tools/*.service-account.json
+service-account*.json
+*-service-account.json
+*firebase-adminsdk*.json

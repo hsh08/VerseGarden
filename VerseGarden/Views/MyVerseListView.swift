@@ -12,44 +12,34 @@ struct MyVerseListView: View {
     @State private var showingCreateSheet = false
     @State private var editingList: MyVerseList?
     @State private var deletingList: MyVerseList?
+    @State private var listSummaries: [VerseListSummary] = []
 
-    private var currentUserLists: [MyVerseList] {
-        lists.lists(for: authViewModel.currentUser?.uid)
-    }
-
-    private var currentUserItems: [MyVerseListItem] {
-        allItems.items(for: authViewModel.currentUser?.uid)
+    private var listMetricsSignature: String {
+        let userID = authViewModel.currentUser?.uid ?? "no-user"
+        let filteredLists = lists.lists(for: authViewModel.currentUser?.uid)
+        let filteredItems = allItems.items(for: authViewModel.currentUser?.uid)
+        let listSignature = filteredLists
+            .map {
+                "\($0.id.uuidString)|\($0.title)|\($0.memo)|\($0.updatedAt.timeIntervalSince1970)|\($0.remoteDocumentId ?? "")"
+            }
+            .joined(separator: ",")
+        let itemSignature = filteredItems
+            .map { "\($0.id.uuidString)|\($0.listId.uuidString)" }
+            .joined(separator: ",")
+        return "\(userID)||\(listSignature)||\(itemSignature)"
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: GardenTheme.sectionSpacing) {
                 headerCard
 
-                Button {
+                GardenPrimaryButton(title: "리스트 만들기", icon: "plus.circle.fill") {
                     showingCreateSheet = true
-                } label: {
-                    HStack {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title3)
-                        Text("리스트 만들기")
-                            .font(.headline)
-                        Spacer()
-                    }
-                    .foregroundStyle(.white)
-                    .padding()
-                    .background(
-                        LinearGradient(
-                            colors: [Color.green, Color.mint],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
                 .buttonStyle(.plain)
 
-                if currentUserLists.isEmpty {
+                if listSummaries.isEmpty {
                     ContentUnavailableView(
                         "아직 만든 리스트가 없습니다",
                         systemImage: "bookmark",
@@ -58,22 +48,22 @@ struct MyVerseListView: View {
                     .padding(.top, 40)
                 } else {
                     LazyVStack(spacing: 12) {
-                        ForEach(currentUserLists) { list in
+                        ForEach(listSummaries) { summary in
                             NavigationLink {
-                                MyVerseListDetailView(list: list)
+                                MyVerseListDetailView(list: summary.list)
                             } label: {
-                                listCard(list)
+                                listCard(summary)
                             }
                             .buttonStyle(PressableCardStyle())
                             .contextMenu {
                                 Button {
-                                    editingList = list
+                                    editingList = summary.list
                                 } label: {
                                     Label("리스트 수정", systemImage: "square.and.pencil")
                                 }
 
                                 Button(role: .destructive) {
-                                    deletingList = list
+                                    deletingList = summary.list
                                 } label: {
                                     Label("리스트 삭제", systemImage: "trash")
                                 }
@@ -82,25 +72,12 @@ struct MyVerseListView: View {
                     }
                 }
             }
-            .padding()
+            .padding(20)
         }
         .navigationTitle("리스트")
-        .background(Color(.systemGroupedBackground))
-        .onAppear {
-            guard authViewModel.currentUser != nil else { return }
-            Task {
-                await verseListSyncCoordinator.syncForAuthenticatedUser(
-                    userID: authViewModel.currentUser?.uid,
-                    modelContext: modelContext
-                )
-            }
-        }
-        .task(id: authViewModel.currentUser?.uid) {
-            guard authViewModel.currentUser != nil else { return }
-            await verseListSyncCoordinator.syncForAuthenticatedUser(
-                userID: authViewModel.currentUser?.uid,
-                modelContext: modelContext
-            )
+        .background(GardenTheme.background)
+        .task(id: listMetricsSignature) {
+            refreshListSummaries()
         }
         .sheet(isPresented: $showingCreateSheet) {
             NavigationStack {
@@ -125,50 +102,54 @@ struct MyVerseListView: View {
     }
 
     private var headerCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("나만의 구절 리스트")
-                .font(.title3.bold())
-            Text("자주 읽고 싶거나 나중에 필사하고 싶은 구절을 직접 모아둘 수 있습니다.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        GardenCard(
+            accentGradient: LinearGradient(
+                colors: [GardenTheme.primary.opacity(0.75), GardenTheme.secondary.opacity(0.7)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("나만의 구절 리스트")
+                    .font(.title3.bold())
+                Text("자주 읽고 싶거나 나중에 필사하고 싶은 구절을 직접 모아둘 수 있습니다.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
-    private func listCard(_ list: MyVerseList) -> some View {
+    private func listCard(_ summary: VerseListSummary) -> some View {
         HStack(alignment: .top, spacing: 14) {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.green.opacity(0.14))
+                .fill(GardenTheme.primary.opacity(0.14))
                 .frame(width: 52, height: 52)
                 .overlay {
                     Image(systemName: "bookmark.fill")
                         .font(.title3)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(GardenTheme.primary)
                 }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(list.title)
+                Text(summary.title)
                     .font(.headline)
                     .foregroundStyle(.primary)
-                if !list.memo.isEmpty {
-                    Text(list.memo)
+                if !summary.memo.isEmpty {
+                    Text(summary.memo)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
-                Text("\(itemCount(for: list))개 구절")
+                Text("\(summary.itemCount)개 구절")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(GardenTheme.primary)
             }
 
             Spacer()
 
             VStack(spacing: 10) {
                 Button {
-                    deletingList = list
+                    deletingList = summary.list
                 } label: {
                     Image(systemName: "trash")
                         .font(.subheadline.weight(.semibold))
@@ -186,12 +167,21 @@ struct MyVerseListView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(AppColors.cardTint)
+        .clipShape(RoundedRectangle(cornerRadius: GardenTheme.cornerRadius, style: .continuous))
     }
 
-    private func itemCount(for list: MyVerseList) -> Int {
-        currentUserItems.filter { $0.listId == list.id }.count
+    private func refreshListSummaries() {
+        let currentUserLists = lists.lists(for: authViewModel.currentUser?.uid)
+        let currentUserItems = allItems.items(for: authViewModel.currentUser?.uid)
+        let itemCountByListID = Dictionary(currentUserItems.map { ($0.listId, 1) }, uniquingKeysWith: +)
+
+        listSummaries = currentUserLists.map { list in
+            VerseListSummary(
+                list: list,
+                itemCount: itemCountByListID[list.id] ?? 0
+            )
+        }
     }
 
     private var deleteAlertBinding: Binding<Bool> {
@@ -217,4 +207,15 @@ struct MyVerseListView: View {
             )
         }
     }
+}
+
+private struct VerseListSummary: Identifiable {
+    let list: MyVerseList
+    let itemCount: Int
+
+    var id: UUID { list.id }
+    var title: String { list.title }
+    var memo: String { list.memo }
+    var updatedAt: Date { list.updatedAt }
+    var remoteDocumentId: String? { list.remoteDocumentId }
 }

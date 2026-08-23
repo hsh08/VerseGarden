@@ -28,7 +28,7 @@ struct NicknameSetupView: View {
                     .autocorrectionDisabled()
                     .padding(.horizontal, 14)
                     .padding(.vertical, 14)
-                    .background(Color(.secondarySystemBackground))
+                    .background(AppColors.cardTint)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
                 Text("공백만 입력할 수 없으며, 2자 이상이어야 합니다.")
@@ -64,7 +64,7 @@ struct NicknameSetupView: View {
                 }
                 .padding(.vertical, 16)
                 .foregroundStyle(.white)
-                .background(Color.green)
+                .background(GardenTheme.primary)
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
             .buttonStyle(.plain)
@@ -75,7 +75,7 @@ struct NicknameSetupView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(.systemGroupedBackground))
+        .background(GardenTheme.background)
     }
 
     private var trimmedNickname: String {

@@ -9,6 +9,8 @@ final class WritingRecordSyncCoordinator: ObservableObject {
 
     private let service = FirestoreWritingRecordService()
     private var activeUserId: String?
+    private var syncingUserId: String?
+    private var inFlightRecordUploads = Set<UUID>()
 
     func syncForAuthenticatedUser(userID: String?, modelContext: ModelContext) async {
         guard let userID, !userID.isEmpty else {
@@ -16,12 +18,19 @@ final class WritingRecordSyncCoordinator: ObservableObject {
         }
 
         guard let userID = validatedCurrentUserID(for: userID) else {
-            stopSync()  
+            stopSync()
             return
         }
 
+        guard syncingUserId != userID else { return }
+
         activeUserId = userID
+        syncingUserId = userID
         isSyncing = true
+        defer {
+            syncingUserId = nil
+            isSyncing = false
+        }
 
         do {
             try assignLegacyRecords(to: userID, modelContext: modelContext)
@@ -29,13 +38,12 @@ final class WritingRecordSyncCoordinator: ObservableObject {
             try reconcile(remoteRecords: remoteRecords, userID: userID, modelContext: modelContext)
             try await uploadPendingRecords(for: userID, modelContext: modelContext)
         } catch {}
-
-        isSyncing = false
     }
 
     func uploadRecordIfNeeded(localRecordID: UUID, userID: String?, modelContext: ModelContext) async {
         guard let userID = validatedCurrentUserID(for: userID) else { return }
         guard activeUserId == userID else { return }
+        guard !inFlightRecordUploads.contains(localRecordID) else { return }
 
         do {
             guard let record = try fetchAllRecords(modelContext: modelContext).first(where: { $0.id == localRecordID }) else {
@@ -46,19 +54,40 @@ final class WritingRecordSyncCoordinator: ObservableObject {
         } catch {}
     }
 
-    func deleteRecordIfNeeded(remoteDocumentId: String?, ownerUserId: String, userID: String?) async {
+    func updateRecordIfNeeded(localRecordID: UUID, userID: String?, modelContext: ModelContext) async {
         guard let userID = validatedCurrentUserID(for: userID) else { return }
         guard activeUserId == userID else { return }
-        guard ownerUserId == userID, let remoteDocumentId, !remoteDocumentId.isEmpty else { return }
+
+        do {
+            guard let record = try fetchAllRecords(modelContext: modelContext).first(where: { $0.id == localRecordID }) else {
+                return
+            }
+            guard record.ownerUserId == userID, record.remoteDocumentId != nil else { return }
+            try await service.updateRecord(record, for: userID)
+            record.lastSyncedAt = Date()
+            try modelContext.save()
+        } catch {}
+    }
+
+    @discardableResult
+    func deleteRecordIfNeeded(remoteDocumentId: String?, ownerUserId: String, userID: String?) async -> Bool {
+        guard let userID = validatedCurrentUserID(for: userID) else { return false }
+        guard ownerUserId == userID else { return false }
+        guard let remoteDocumentId, !remoteDocumentId.isEmpty else { return true }
 
         do {
             try await service.deleteRecord(recordId: remoteDocumentId, for: userID)
+            return true
         } catch {}
+
+        return false
     }
 
     func stopSync() {
         activeUserId = nil
+        syncingUserId = nil
         isSyncing = false
+        inFlightRecordUploads.removeAll()
     }
 
     private func validatedCurrentUserID(for userID: String?) -> String? {
@@ -137,11 +166,24 @@ final class WritingRecordSyncCoordinator: ObservableObject {
                 originalText: remoteRecord.originalText,
                 userText: remoteRecord.userText,
                 completedAt: remoteRecord.completedAt,
-                sourceType: remoteRecord.sourceType
+                sourceType: remoteRecord.sourceType,
+                planId: remoteRecord.planId,
+                assignmentId: remoteRecord.assignmentId,
+                planDayIndex: remoteRecord.planDayIndex
             )
             modelContext.insert(newRecord)
             localByRemoteDocumentId[remoteDocumentID] = newRecord
             localByDuplicateKey[remoteKey] = newRecord
+            didChange = true
+        }
+
+        let remoteDocumentIds = Set(remoteRecords.compactMap(\.remoteDocumentId))
+        let orphanedRecords = localRecords.filter {
+            guard let remoteDocumentId = $0.remoteDocumentId, !remoteDocumentId.isEmpty else { return false }
+            return !remoteDocumentIds.contains(remoteDocumentId)
+        }
+        for orphanedRecord in orphanedRecords {
+            modelContext.delete(orphanedRecord)
             didChange = true
         }
 
@@ -152,7 +194,7 @@ final class WritingRecordSyncCoordinator: ObservableObject {
 
     private func uploadPendingRecords(for userID: String, modelContext: ModelContext) async throws {
         let pendingRecords = try fetchAllRecords(modelContext: modelContext).filter {
-            $0.ownerUserId == userID && $0.remoteDocumentId == nil
+            $0.ownerUserId == userID && $0.remoteDocumentId == nil && !inFlightRecordUploads.contains($0.id)
         }
 
         for record in pendingRecords {
@@ -162,6 +204,10 @@ final class WritingRecordSyncCoordinator: ObservableObject {
 
     private func upload(record: WritingRecord, userID: String, modelContext: ModelContext) async throws {
         guard record.remoteDocumentId == nil else { return }
+        guard !inFlightRecordUploads.contains(record.id) else { return }
+
+        inFlightRecordUploads.insert(record.id)
+        defer { inFlightRecordUploads.remove(record.id) }
 
         let remoteDocumentId = try await service.createRecord(from: record, for: userID)
         record.remoteDocumentId = remoteDocumentId
@@ -174,7 +220,12 @@ final class WritingRecordSyncCoordinator: ObservableObject {
     }
 
     private func duplicateKey(for record: WritingRecord) -> String {
-        "\(record.ownerUserId)|\(record.book)|\(record.chapter)|\(record.verse)|\(record.completedAt.timeIntervalSince1970)|\(record.sourceType ?? "")"
+        if record.sourceType == WritingSourceType.plan.rawValue,
+           let planId = record.planId,
+           let assignmentId = record.assignmentId {
+            return "\(record.ownerUserId)|plan|\(planId)|\(assignmentId)|\(record.verseId)"
+        }
+        return "\(record.ownerUserId)|\(record.book)|\(record.chapter)|\(record.verse)|\(record.completedAt.timeIntervalSince1970)|\(record.sourceType ?? "")"
     }
 }
 

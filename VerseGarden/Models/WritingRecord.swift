@@ -16,6 +16,9 @@ final class WritingRecord {
     var userText: String
     var completedAt: Date
     var sourceType: String?
+    var planId: String?
+    var assignmentId: String?
+    var planDayIndex: Int?
 
     init(
         id: UUID = UUID(),
@@ -30,7 +33,10 @@ final class WritingRecord {
         originalText: String,
         userText: String,
         completedAt: Date,
-        sourceType: String? = nil
+        sourceType: String? = nil,
+        planId: String? = nil,
+        assignmentId: String? = nil,
+        planDayIndex: Int? = nil
     ) {
         self.id = id
         self.ownerUserId = ownerUserId
@@ -45,5 +51,8 @@ final class WritingRecord {
         self.userText = userText
         self.completedAt = completedAt
         self.sourceType = sourceType
+        self.planId = planId
+        self.assignmentId = assignmentId
+        self.planDayIndex = planDayIndex
     }
 }

@@ -51,7 +51,7 @@ struct BibleVerseSelectView: View {
             .padding()
         }
         .navigationTitle("절 선택")
-        .background(Color(.systemGroupedBackground))
+        .background(GardenTheme.background)
         .safeAreaInset(edge: .bottom) {
             if onSelectVerses != nil, !selectedVerseIDs.isEmpty {
                 Button {
@@ -61,9 +61,10 @@ struct BibleVerseSelectView: View {
                         .font(.headline)
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(Color.green)
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .frame(minHeight: 54)
+                        .padding(.horizontal, 18)
+                        .background(GardenTheme.primary)
+                        .clipShape(RoundedRectangle(cornerRadius: AppRadius.button, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal)
@@ -84,9 +85,7 @@ struct BibleVerseSelectView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .shadow(color: Color.black.opacity(0.05), radius: 12, y: 4)
+        .gardenCardSurface()
     }
 
     private func versePreview(for text: String) -> String {
