@@ -6,8 +6,8 @@ import {
   limit,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
-  setDoc,
   updateDoc,
   where
 } from "firebase/firestore";
@@ -24,6 +24,7 @@ import type {
   DailyQuietTimeContentSnapshot,
   DailyQuietTimeFormState,
   DailyQuietTimeQuestion,
+  DailyQuietTimeScope,
   DailyQuietTimeStatus
 } from "@/types/dailyQuietTime";
 
@@ -41,20 +42,27 @@ const CONTENT_FIELDS: Array<keyof DailyQuietTimeContentSnapshot> = [
   "questions"
 ];
 
-export function dailyQuietTimeDoc(dateKey: string) {
-  return doc(db, COLLECTION_NAME, dateKey);
+export function dailyQuietTimeDoc(dateKey: string, scope?: DailyQuietTimeScope) {
+  return scope
+    ? doc(db, "communities", scope.communityId, COLLECTION_NAME, dateKey)
+    : doc(db, COLLECTION_NAME, dateKey);
 }
 
-export async function getDailyQuietTime(dateKey: string): Promise<DailyQuietTime | null> {
-  const snapshot = await getDoc(dailyQuietTimeDoc(dateKey));
+export async function getDailyQuietTime(
+  dateKey: string,
+  scope?: DailyQuietTimeScope
+): Promise<DailyQuietTime | null> {
+  const snapshot = await getDoc(dailyQuietTimeDoc(dateKey, scope));
   if (!snapshot.exists()) {
     return null;
   }
   return snapshot.data() as DailyQuietTime;
 }
 
-export async function listDailyQuietTimes() {
-  const base = collection(db, COLLECTION_NAME);
+export async function listDailyQuietTimes(scope?: DailyQuietTimeScope) {
+  const base = scope
+    ? collection(db, "communities", scope.communityId, COLLECTION_NAME)
+    : collection(db, COLLECTION_NAME);
   const snapshot = await getDocs(query(base, orderBy("dateKey", "desc"), limit(120)));
   return snapshot.docs.map((item) => item.data() as DailyQuietTime);
 }
@@ -167,17 +175,20 @@ export function hasContentChanged(
   });
 }
 
-export async function createDailyQuietTime(form: DailyQuietTimeFormState, adminUid: string) {
+export async function createDailyQuietTime(
+  form: DailyQuietTimeFormState,
+  adminUid: string,
+  scope?: DailyQuietTimeScope
+) {
   assertValidForStatus(form, form.status);
+  assertCommunityIsWritable(scope);
 
-  const existing = await getDoc(dailyQuietTimeDoc(form.dateKey));
-  if (existing.exists()) {
-    throw new Error("해당 날짜의 QT가 이미 존재합니다.");
-  }
+  const reference = dailyQuietTimeDoc(form.dateKey, scope);
 
   const data = {
     dateKey: form.dateKey,
-    timezone: "Asia/Seoul",
+    timezone: scope?.timezone ?? "Asia/Seoul",
+    ...(scope ? { communityId: scope.communityId } : {}),
     title: form.title.trim(),
     verseId: primaryVerseId(form),
     startVerseId: form.startVerseId,
@@ -197,15 +208,23 @@ export async function createDailyQuietTime(form: DailyQuietTimeFormState, adminU
     updatedAt: serverTimestamp()
   };
 
-  await setDoc(dailyQuietTimeDoc(form.dateKey), data);
+  await runTransaction(db, async (transaction) => {
+    const existing = await transaction.get(reference);
+    if (existing.exists()) {
+      throw new Error("해당 날짜의 QT가 이미 존재합니다.");
+    }
+    transaction.set(reference, data);
+  });
 }
 
 export async function updateDailyQuietTime(
   current: DailyQuietTime,
   form: DailyQuietTimeFormState,
   adminUid: string,
-  statusOverride?: DailyQuietTimeStatus
+  statusOverride?: DailyQuietTimeStatus,
+  scope?: DailyQuietTimeScope
 ) {
+  assertCommunityIsWritable(scope);
   const nextStatus = statusOverride ?? form.status;
   assertValidForStatus(form, nextStatus);
 
@@ -235,7 +254,13 @@ export async function updateDailyQuietTime(
       : {})
   };
 
-  await updateDoc(dailyQuietTimeDoc(current.dateKey), data);
+  await updateDoc(dailyQuietTimeDoc(current.dateKey, scope), data);
+}
+
+function assertCommunityIsWritable(scope?: DailyQuietTimeScope) {
+  if (scope && scope.communityStatus !== "active") {
+    throw new Error("비활성 또는 보관된 공동체의 QT는 수정할 수 없습니다.");
+  }
 }
 
 function assertValidForStatus(

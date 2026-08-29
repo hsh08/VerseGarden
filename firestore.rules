@@ -13,8 +13,149 @@ service cloud.firestore {
       return request.auth != null && request.auth.token.admin == true;
     }
 
+    function isPlatformAdmin() {
+      return isAdmin();
+    }
+
+    function communityMemberPath(communityId, uid) {
+      return /databases/$(database)/documents/communities/$(communityId)/members/$(uid);
+    }
+
+    function communityPath(communityId) {
+      return /databases/$(database)/documents/communities/$(communityId);
+    }
+
+    function communityExists(communityId) {
+      return exists(communityPath(communityId));
+    }
+
+    function hasActiveCommunityMembership(communityId) {
+      return isSignedIn()
+        && exists(communityMemberPath(communityId, request.auth.uid))
+        && get(communityMemberPath(communityId, request.auth.uid)).data.status == "active";
+    }
+
+    function communityRole(communityId) {
+      return get(communityMemberPath(communityId, request.auth.uid)).data.role;
+    }
+
+    function isCommunityMember(communityId) {
+      return hasActiveCommunityMembership(communityId);
+    }
+
+    function isCommunityLeader(communityId) {
+      return hasActiveCommunityMembership(communityId)
+        && communityRole(communityId) in ["leader", "admin"];
+    }
+
+    function isCommunityAdmin(communityId) {
+      return isCommunityLeader(communityId);
+    }
+
     function isDailyQuietTimeStatus(status) {
       return status in ["draft", "published", "archived"];
+    }
+
+    function isCommunityStatus(status) {
+      return status in ["active", "inactive", "archived"];
+    }
+
+    function isCommunityRole(role) {
+      return role in ["member", "leader", "admin"];
+    }
+
+    function isMembershipStatus(status) {
+      return status in ["active", "removed", "banned", "left"];
+    }
+
+    function hasCommunityRequiredFields(data) {
+      return data.keys().hasAll([
+        "name",
+        "status",
+        "timezone",
+        "createdBy",
+        "updatedBy",
+        "createdAt",
+        "updatedAt"
+      ]);
+    }
+
+    function hasOnlyCommunityFields(data) {
+      return data.keys().hasOnly([
+        "name",
+        "description",
+        "status",
+        "timezone",
+        "primaryLeaderUid",
+        "inviteEnabled",
+        "memberCount",
+        "createdBy",
+        "updatedBy",
+        "createdAt",
+        "updatedAt"
+      ]);
+    }
+
+    function hasValidCommunityShape(data) {
+      return hasCommunityRequiredFields(data)
+        && hasOnlyCommunityFields(data)
+        && data.name is string
+        && data.name.size() > 0
+        && isCommunityStatus(data.status)
+        && data.timezone is string
+        && data.timezone.size() > 0
+        && (!data.keys().hasAny(["description"]) || data.description is string)
+        && (!data.keys().hasAny(["primaryLeaderUid"]) || data.primaryLeaderUid is string)
+        && (!data.keys().hasAny(["inviteEnabled"]) || data.inviteEnabled is bool)
+        && (!data.keys().hasAny(["memberCount"]) || (data.memberCount is int && data.memberCount >= 0))
+        && data.createdBy is string
+        && data.updatedBy is string
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function preservesCommunityImmutableFields() {
+      return request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function hasMembershipRequiredFields(data) {
+      return data.keys().hasAll([
+        "uid",
+        "role",
+        "status",
+        "joinedAt",
+        "updatedAt"
+      ]);
+    }
+
+    function hasOnlyMembershipFields(data) {
+      return data.keys().hasOnly([
+        "uid",
+        "role",
+        "status",
+        "displayName",
+        "invitedBy",
+        "joinedAt",
+        "updatedAt"
+      ]);
+    }
+
+    function hasValidMembershipShape(data, uid) {
+      return hasMembershipRequiredFields(data)
+        && hasOnlyMembershipFields(data)
+        && data.uid == uid
+        && isCommunityRole(data.role)
+        && isMembershipStatus(data.status)
+        && (!data.keys().hasAny(["displayName"]) || data.displayName is string)
+        && (!data.keys().hasAny(["invitedBy"]) || data.invitedBy is string)
+        && data.joinedAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function preservesMembershipImmutableFields() {
+      return request.resource.data.uid == resource.data.uid
+        && request.resource.data.joinedAt == resource.data.joinedAt;
     }
 
     function hasDailyQuietTimeRequiredFields(data) {
@@ -91,17 +232,184 @@ service cloud.firestore {
         && (!data.keys().hasAny(["archivedAt"]) || data.archivedAt is timestamp);
     }
 
+    function isCommunityActive(communityId) {
+      return communityExists(communityId)
+        && get(communityPath(communityId)).data.status == "active";
+    }
+
+    function hasOnlyCommunityDailyQuietTimeFields(data) {
+      return data.keys().hasOnly([
+        "communityId",
+        "dateKey",
+        "timezone",
+        "title",
+        "verseId",
+        "startVerseId",
+        "endVerseId",
+        "reference",
+        "translation",
+        "devotionalText",
+        "reflectionPrompt",
+        "applicationPrompt",
+        "prayerPrompt",
+        "questions",
+        "status",
+        "version",
+        "createdBy",
+        "updatedBy",
+        "createdAt",
+        "updatedAt",
+        "publishedAt",
+        "archivedAt"
+      ]);
+    }
+
+    function hasValidCommunityDailyQuietTimeShape(data, communityId, dateKey) {
+      return hasDailyQuietTimeRequiredFields(data)
+        && hasOnlyCommunityDailyQuietTimeFields(data)
+        && data.communityId == communityId
+        && data.dateKey == dateKey
+        && data.timezone is string
+        && data.title is string
+        && data.verseId is string
+        && (!data.keys().hasAny(["startVerseId"]) || data.startVerseId is string)
+        && (!data.keys().hasAny(["endVerseId"]) || data.endVerseId is string)
+        && data.reference is string
+        && data.translation is string
+        && data.devotionalText is string
+        && data.reflectionPrompt is string
+        && data.applicationPrompt is string
+        && data.prayerPrompt is string
+        && data.questions is list
+        && isDailyQuietTimeStatus(data.status)
+        && data.version is int
+        && data.version >= 1
+        && data.createdBy is string
+        && data.updatedBy is string
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && (!data.keys().hasAny(["publishedAt"]) || data.publishedAt is timestamp)
+        && (!data.keys().hasAny(["archivedAt"]) || data.archivedAt is timestamp);
+    }
+
+    function isCommunityDailyQuietTimeManager(communityId) {
+      return isPlatformAdmin() || isCommunityLeader(communityId);
+    }
+
+    function hasCommunityDailyQuietTimeContentChanged(before, after) {
+      return after.diff(before).affectedKeys().hasAny([
+        "title",
+        "verseId",
+        "startVerseId",
+        "endVerseId",
+        "reference",
+        "devotionalText",
+        "reflectionPrompt",
+        "applicationPrompt",
+        "prayerPrompt",
+        "questions"
+      ]);
+    }
+
+    function hasValidCommunityDailyQuietTimeVersion(before, after) {
+      return hasCommunityDailyQuietTimeContentChanged(before, after)
+        ? after.version == before.version + 1
+        : after.version == before.version;
+    }
+
+    function preservesCommunityDailyQuietTimeImmutableFields() {
+      return request.resource.data.communityId == resource.data.communityId
+        && request.resource.data.dateKey == resource.data.dateKey
+        && request.resource.data.timezone == resource.data.timezone
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
     match /dailyQuietTimes/{dateKey} {
-      allow get: if isAdmin()
+      allow get: if isPlatformAdmin()
         || (isSignedIn() && resource.data.status == "published");
 
-      allow list: if isAdmin();
+      allow list: if isPlatformAdmin();
 
-      allow create, update: if isAdmin()
+      allow create, update: if isPlatformAdmin()
         && hasValidDailyQuietTimeShape(request.resource.data, dateKey);
 
-      allow delete: if isAdmin()
+      allow delete: if isPlatformAdmin()
         && resource.data.status in ["draft", "archived"];
+    }
+
+    match /communities/{communityId} {
+      allow get: if isPlatformAdmin()
+        || isCommunityMember(communityId);
+
+      allow list: if isPlatformAdmin();
+
+      allow create: if isPlatformAdmin()
+        && hasValidCommunityShape(request.resource.data);
+
+      allow update: if isPlatformAdmin()
+        && hasValidCommunityShape(request.resource.data)
+        && preservesCommunityImmutableFields();
+
+      allow delete: if false;
+
+      match /members/{memberUid} {
+        allow get: if isPlatformAdmin()
+          || isCommunityAdmin(communityId)
+          || (isSignedIn()
+            && request.auth.uid == memberUid
+            && isCommunityMember(communityId));
+
+        allow list: if isPlatformAdmin()
+          || isCommunityAdmin(communityId);
+
+        allow create: if isPlatformAdmin()
+          && communityExists(communityId)
+          && hasValidMembershipShape(request.resource.data, memberUid);
+
+        allow update: if isPlatformAdmin()
+          && communityExists(communityId)
+          && hasValidMembershipShape(request.resource.data, memberUid)
+          && preservesMembershipImmutableFields();
+
+        allow delete: if false;
+      }
+
+      match /dailyQuietTimes/{dateKey} {
+        allow get: if isCommunityDailyQuietTimeManager(communityId)
+          || (isCommunityMember(communityId)
+            && isCommunityActive(communityId)
+            && resource.data.communityId == communityId
+            && resource.data.status == "published");
+
+        allow list: if isCommunityDailyQuietTimeManager(communityId);
+
+        allow create: if isCommunityDailyQuietTimeManager(communityId)
+          && isCommunityActive(communityId)
+          && hasValidCommunityDailyQuietTimeShape(request.resource.data, communityId, dateKey)
+          && request.resource.data.version == 1
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.updatedBy == request.auth.uid;
+
+        allow update: if isCommunityDailyQuietTimeManager(communityId)
+          && isCommunityActive(communityId)
+          && hasValidCommunityDailyQuietTimeShape(request.resource.data, communityId, dateKey)
+          && preservesCommunityDailyQuietTimeImmutableFields()
+          && hasValidCommunityDailyQuietTimeVersion(resource.data, request.resource.data)
+          && request.resource.data.updatedBy == request.auth.uid;
+
+        allow delete: if false;
+      }
+
+      match /qtSubmissions/{submissionId} {
+        allow get, list: if isCommunityLeader(communityId);
+        allow create, update, delete: if false;
+      }
+    }
+
+    match /communityInvites/{inviteId} {
+      allow get, list: if isPlatformAdmin();
+      allow create, update, delete: if false;
     }
 
     match /users/{userId} {

@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "npm run sync:bible && next dev",
+    "qa:redeem-community-invite": "node --env-file=.env.local ./scripts/qa/redeem-community-invite.mjs",
     "sync:bible": "node ./scripts/sync-bible-data.mjs",
     "prebuild": "npm run sync:bible",
     "build": "next build",
+    "start": "next start",
     "pretypecheck": "npm run sync:bible",
     "typecheck": "tsc --noEmit",
     "prelint": "npm run sync:bible",

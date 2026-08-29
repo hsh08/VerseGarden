@@ -14,6 +14,7 @@ struct HomeView: View {
     @EnvironmentObject private var todayQuietTimeContentStore: TodayQuietTimeContentStore
     @EnvironmentObject private var writingPlanSelectionStore: WritingPlanSelectionStore
     @EnvironmentObject private var likedVerseStore: LikedVerseStore
+    @EnvironmentObject private var communityStore: CommunityStore
 
     private let calendar = Calendar.current
     @State private var metrics = HomeMetrics.empty
@@ -131,8 +132,11 @@ struct HomeView: View {
             )
             refreshMetrics()
         }
-        .task(id: authViewModel.currentUser?.uid) {
-            await todayQuietTimeContentStore.loadTodayIfNeeded(force: true)
+        .task(id: quietTimeContextID) {
+            await todayQuietTimeContentStore.loadTodayIfNeeded(
+                community: communityStore.currentCommunity,
+                force: true
+            )
         }
         .sheet(isPresented: $showingCreatePlan) {
             NavigationStack {
@@ -284,6 +288,14 @@ struct HomeView: View {
                             .padding(.vertical, 6)
                             .background(Color.white.opacity(0.64))
                             .clipShape(Capsule())
+
+                        if todayQTContent.source == .community,
+                           let communityName = todayQTContent.communityName {
+                            Text("공동체 QT · \(communityName)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(GardenTheme.primary)
+                                .lineLimit(1)
+                        }
 
                         Text(isTodayQuietTimeCompleted ? "완료한 QT를 다시 볼 수 있어요" : todayQTContent.title)
                             .font(.title3.bold())
@@ -907,6 +919,10 @@ struct HomeView: View {
 
     private var todayQuietTimeButtonTitle: String {
         qtStore.hasDraft(dateKey: todayQTContent.id) ? "오늘의 QT 이어하기" : "오늘의 QT 시작하기"
+    }
+
+    private var quietTimeContextID: String {
+        "\(authViewModel.currentUser?.uid ?? "signed-out")|\(communityStore.currentCommunity?.id ?? "global")"
     }
 
     private var planSupportSubtitle: String {

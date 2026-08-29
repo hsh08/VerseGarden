@@ -64,7 +64,10 @@ export function formatDisplayDate(dateKey: string): string {
   }).format(new Date(Date.UTC(year, month - 1, day)));
 }
 
-export function formatDateTime(value?: { toDate: () => Date }): string {
+export function formatDateTime(
+  value?: { toDate: () => Date },
+  timeZone?: string
+): string {
   if (!value) {
     return "-";
   }
@@ -74,6 +77,7 @@ export function formatDateTime(value?: { toDate: () => Date }): string {
     month: "short",
     day: "numeric",
     hour: "2-digit",
-    minute: "2-digit"
+    minute: "2-digit",
+    ...(timeZone ? { timeZone } : {})
   }).format(value.toDate());
 }

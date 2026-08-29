@@ -33,6 +33,17 @@ export type DailyQuietTime = {
   archivedAt?: Timestamp;
 };
 
+export type CommunityDailyQuietTime = DailyQuietTime & {
+  communityId: string;
+};
+
+export type DailyQuietTimeScope = {
+  communityId: string;
+  communityName: string;
+  communityStatus: "active" | "inactive" | "archived";
+  timezone: string;
+};
+
 export type DailyQuietTimeFormState = {
   dateKey: string;
   title: string;

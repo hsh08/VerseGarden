@@ -1,0 +1,23 @@
+{
+  "name": "versegarden-functions",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && firebase emulators:exec --config ../firebase.json --project versegarden-rules-test --only firestore \"node --test --test-concurrency=1 'lib/**/*.test.js'\""
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "firebase-functions": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "firebase-tools": "^14.0.0",
+    "typescript": "^5.0.0"
+  }
+}

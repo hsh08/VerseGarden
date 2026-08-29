@@ -6,6 +6,14 @@ final class BibleDataService {
     private let bibleFileName = "bible_krv_full"
 
     private lazy var verses: [LocalBibleVerse] = loadVerses()
+    private lazy var orderedBooks: [String] = {
+        verses.reduce(into: [String]()) { result, verse in
+            if !result.contains(verse.book) {
+                result.append(verse.book)
+            }
+        }
+    }()
+    private lazy var searchIndex = BibleSearchIndex(verses: verses)
 
     private init() {}
 
@@ -14,12 +22,7 @@ final class BibleDataService {
     }
 
     func allBooks() -> [String] {
-        let ordered = verses.reduce(into: [String]()) { result, verse in
-            if !result.contains(verse.book) {
-                result.append(verse.book)
-            }
-        }
-        return ordered
+        orderedBooks
     }
 
     func getBooks(testament: String) -> [String] {
@@ -107,26 +110,7 @@ final class BibleDataService {
     }
 
     func searchVerses(query: String, limit: Int = 40) -> [LocalBibleVerse] {
-        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedQuery.isEmpty else { return [] }
-        let compactQuery = normalizedQuery
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: "장", with: ":")
-            .replacingOccurrences(of: "절", with: "")
-
-        return verses
-            .lazy
-            .filter { verse in
-                let compactReference = verse.referenceText.replacingOccurrences(of: " ", with: "")
-                let compactShortReference = "\(String(verse.book.prefix(1)))\(verse.chapter):\(verse.verse)"
-                return verse.text.localizedCaseInsensitiveContains(normalizedQuery)
-                    || verse.book.localizedCaseInsensitiveContains(normalizedQuery)
-                    || verse.referenceText.localizedCaseInsensitiveContains(normalizedQuery)
-                    || compactReference.localizedCaseInsensitiveContains(compactQuery)
-                    || compactShortReference.localizedCaseInsensitiveContains(compactQuery)
-            }
-            .prefix(limit)
-            .map { $0 }
+        searchIndex.search(query: query, limit: limit).verses
     }
 
     func adjacentChapter(book: String, chapter: Int, offset: Int) -> (book: String, chapter: Int)? {

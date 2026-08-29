@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, RefObject, useMemo, useRef, useState } from "react";
 import { BibleVerseSelector } from "@/components/BibleVerseSelector";
 import { DialogAction, FormDialog } from "@/components/FormDialog";
+import { useGlobalLoading } from "@/components/GlobalLoadingProvider";
 import { friendlyErrorMessage } from "@/components/PermissionError";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
@@ -15,13 +16,15 @@ import {
 import { useAdminAuth } from "@/lib/auth";
 import type {
   DailyQuietTime,
-  DailyQuietTimeFormState
+  DailyQuietTimeFormState,
+  DailyQuietTimeScope
 } from "@/types/dailyQuietTime";
 
 type Props = {
   mode: "create" | "edit";
   initialContent?: DailyQuietTime;
   initialForm?: DailyQuietTimeFormState;
+  scope?: DailyQuietTimeScope;
 };
 
 type FocusTarget =
@@ -41,9 +44,10 @@ type DialogState = {
   actions?: DialogAction[];
 };
 
-export function DailyQuietTimeForm({ mode, initialContent, initialForm }: Props) {
+export function DailyQuietTimeForm({ mode, initialContent, initialForm, scope }: Props) {
   const router = useRouter();
   const { user } = useAdminAuth();
+  const { withGlobalLoading } = useGlobalLoading();
   const [form, setForm] = useState<DailyQuietTimeFormState>(
     initialForm ?? createEmptyFormState()
   );
@@ -53,6 +57,7 @@ export function DailyQuietTimeForm({ mode, initialContent, initialForm }: Props)
   const isProtectedInitialStatus =
     mode === "edit" &&
     (initialContent?.status === "published" || initialContent?.status === "archived");
+  const isLifecycleReadOnly = Boolean(scope && scope.communityStatus !== "active");
   const [isEditModeEnabled, setIsEditModeEnabled] = useState(!isProtectedInitialStatus);
 
   const dateKeyRef = useRef<HTMLInputElement>(null);
@@ -72,7 +77,7 @@ export function DailyQuietTimeForm({ mode, initialContent, initialForm }: Props)
     () => formSignature(form) !== formSignature(baselineForm),
     [form, baselineForm]
   );
-  const isReadOnly = isProtectedInitialStatus && !isEditModeEnabled;
+  const isReadOnly = isLifecycleReadOnly || (isProtectedInitialStatus && !isEditModeEnabled);
   const isDirty = isReadOnly ? false : hasFormChanges;
   const needsFullValidationForSave =
     form.status === "published" || form.status === "archived";
@@ -143,30 +148,35 @@ export function DailyQuietTimeForm({ mode, initialContent, initialForm }: Props)
     setNotice(null);
 
     try {
-      if (mode === "create") {
-        await createDailyQuietTime(
-          {
-            ...form,
-            status: statusOverride ?? form.status
-          },
-          user.uid
-        );
-        showSuccessDialog("저장되었습니다", "QT 내용이 정상적으로 저장되었습니다.");
-        return;
-      }
+      await withGlobalLoading(async () => {
+        if (mode === "create") {
+          await createDailyQuietTime(
+            {
+              ...form,
+              status: statusOverride ?? form.status
+            },
+            user.uid,
+            scope
+          );
+          showSuccessDialog("저장되었습니다", "QT 내용이 정상적으로 저장되었습니다.");
+          return;
+        }
 
-      if (!initialContent) {
-        throw new Error("수정할 QT 데이터를 찾지 못했습니다.");
-      }
+        if (!initialContent) {
+          throw new Error("수정할 QT 데이터를 찾지 못했습니다.");
+        }
 
-      await updateDailyQuietTime(initialContent, form, user.uid, statusOverride);
-      if (statusOverride === "published") {
-        showSuccessDialog("게시되었습니다", "이 QT가 사용자에게 공개되었습니다.");
-      } else if (statusOverride === "archived") {
-        showSuccessDialog("보관되었습니다", "이 QT는 더 이상 사용자에게 공개되지 않습니다.");
-      } else {
-        showSuccessDialog("저장되었습니다", "QT 내용이 정상적으로 저장되었습니다.");
-      }
+        await updateDailyQuietTime(initialContent, form, user.uid, statusOverride, scope);
+        if (statusOverride === "published") {
+          showSuccessDialog("게시되었습니다", "이 QT가 사용자에게 공개되었습니다.");
+        } else if (statusOverride === "archived") {
+          showSuccessDialog("보관되었습니다", "이 QT는 더 이상 사용자에게 공개되지 않습니다.");
+        } else {
+          showSuccessDialog("저장되었습니다", "QT 내용이 정상적으로 저장되었습니다.");
+        }
+      }, statusOverride === "published"
+        ? "QT를 게시하는 중..."
+        : statusOverride === "archived" ? "QT를 보관하는 중..." : "QT를 저장하는 중...");
     } catch (saveError) {
       showSaveErrorDialog(friendlyErrorMessage(saveError));
     } finally {
@@ -180,13 +190,23 @@ export function DailyQuietTimeForm({ mode, initialContent, initialForm }: Props)
       <section className="editor-panel">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Daily QT</p>
+            <p className="eyebrow">{scope ? scope.communityName : "VerseGarden Global Daily QT"}</p>
             <h1>{mode === "create" ? "새 QT 작성" : "QT 편집"}</h1>
+            {scope ? <p className="muted">Community Daily QT · {scope.timezone}</p> : null}
           </div>
           <StatusBadge status={form.status} />
         </div>
 
-        {isProtectedInitialStatus ? (
+        {isLifecycleReadOnly ? (
+          <div className="status-note">
+            <p>
+              현재 공동체는 {scope?.communityStatus} 상태입니다. 기존 QT는 조회할 수 있지만
+              수정, 게시, 보관은 제한됩니다.
+            </p>
+          </div>
+        ) : null}
+
+        {isProtectedInitialStatus && !isLifecycleReadOnly ? (
           <div className="status-note">
             <div>
               <StatusBadge status={form.status} />
@@ -326,15 +346,17 @@ export function DailyQuietTimeForm({ mode, initialContent, initialForm }: Props)
                   : "저장"}
             </button>
           ) : null}
-          <button
-            className="button secondary"
-            type="button"
-            disabled={isSaving}
-            onClick={() => void save("published")}
-          >
-            Publish
-          </button>
-          {mode === "edit" ? (
+          {!isLifecycleReadOnly ? (
+            <button
+              className="button secondary"
+              type="button"
+              disabled={isSaving}
+              onClick={() => void save("published")}
+            >
+              Publish
+            </button>
+          ) : null}
+          {mode === "edit" && !isLifecycleReadOnly ? (
             <button
               className="button secondary"
               type="button"
@@ -348,7 +370,7 @@ export function DailyQuietTimeForm({ mode, initialContent, initialForm }: Props)
       </section>
 
       <aside className="preview-panel">
-        <p className="eyebrow">Preview</p>
+        <p className="eyebrow">{scope ? `${scope.communityName} Preview` : "Preview"}</p>
         <h2>{form.title || "QT 제목"}</h2>
 
         <div className="preview-section">
@@ -464,7 +486,7 @@ export function DailyQuietTimeForm({ mode, initialContent, initialForm }: Props)
           variant: "primary",
           onClick: () => {
             setDialog(null);
-            router.push("/admin/qt");
+            router.push(scope ? `/admin/community/${scope.communityId}/qt` : "/admin/qt");
             router.refresh();
           }
         }

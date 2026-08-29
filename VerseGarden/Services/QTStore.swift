@@ -32,6 +32,10 @@ final class QTStore: ObservableObject {
         return records.first { $0.dateKey == dateKey }
     }
 
+    func record(id: String) -> QTRecord? {
+        records.first { $0.id == id }
+    }
+
     func record(for content: QTContent) -> QTRecord {
         let dateKey = content.contentDateKey ?? content.id
         if let existing = record(dateKey: dateKey) {
@@ -152,6 +156,8 @@ final class QTStore: ObservableObject {
             || record.contentId != content.contentId
             || record.contentDateKey != content.contentDateKey
             || record.contentVersion != content.contentVersion
+            || record.contentSource != content.source
+            || record.communityId != content.communityId
     }
 
     private func refreshed(_ record: QTRecord, with content: QTContent) -> QTRecord {
@@ -167,6 +173,8 @@ final class QTStore: ObservableObject {
             contentId: content.contentId,
             contentDateKey: content.contentDateKey,
             contentVersion: content.contentVersion,
+            contentSource: content.source,
+            communityId: content.communityId,
             reflectionAnswer: record.reflectionAnswer,
             applicationText: record.applicationText,
             prayerText: record.prayerText,
@@ -192,6 +200,8 @@ final class QTStore: ObservableObject {
             contentId: selected.contentId ?? fallback.contentId,
             contentDateKey: selected.contentDateKey ?? fallback.contentDateKey,
             contentVersion: selected.contentVersion ?? fallback.contentVersion,
+            contentSource: selected.contentSource ?? fallback.contentSource,
+            communityId: selected.communityId ?? fallback.communityId,
             reflectionAnswer: selected.reflectionAnswer,
             applicationText: selected.applicationText,
             prayerText: selected.prayerText,

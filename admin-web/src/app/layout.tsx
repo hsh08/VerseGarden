@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { GlobalLoadingProvider } from "@/components/GlobalLoadingProvider";
 import { AdminAuthProvider } from "@/lib/auth";
 
 export const metadata: Metadata = {
@@ -11,7 +12,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ko">
       <body>
-        <AdminAuthProvider>{children}</AdminAuthProvider>
+        <AdminAuthProvider>
+          <GlobalLoadingProvider>{children}</GlobalLoadingProvider>
+        </AdminAuthProvider>
       </body>
     </html>
   );

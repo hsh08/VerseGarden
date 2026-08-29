@@ -3,17 +3,19 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/lib/auth";
+import { useGlobalLoading } from "@/components/GlobalLoadingProvider";
 
 export default function LoginPage() {
   const router = useRouter();
   const { state, error, isConfigured, signIn } = useAdminAuth();
+  const { withGlobalLoading } = useGlobalLoading();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (state === "admin") {
+    if (state === "platformAdmin" || state === "communityAdmin") {
       router.replace("/admin");
     }
   }, [router, state]);
@@ -29,7 +31,10 @@ export default function LoginPage() {
 
     setIsSubmitting(true);
     try {
-      await signIn(email.trim(), password);
+      await withGlobalLoading(
+        () => signIn(email.trim(), password),
+        "로그인 중..."
+      );
     } catch {
       setFormError("로그인하지 못했습니다. 이메일과 비밀번호를 확인해주세요.");
     } finally {
@@ -42,13 +47,13 @@ export default function LoginPage() {
       <section className="login-card">
         <p className="eyebrow">VerseGarden Admin</p>
         <h1>관리자 로그인</h1>
-        <p className="muted">Daily QT 콘텐츠를 작성하고 발행합니다.</p>
+        <p className="muted">권한에 맞는 VerseGarden 운영 도구로 연결합니다.</p>
 
         {!isConfigured ? (
           <div className="alert error">Firebase Web 설정을 `.env.local`에 입력해주세요.</div>
         ) : null}
         {state === "denied" ? (
-          <div className="alert error">이 계정은 관리자 권한이 없습니다.</div>
+          <div className="alert error">이 계정에는 관리 가능한 VerseGarden 운영 범위가 없습니다.</div>
         ) : null}
         {error ? <div className="alert error">{error}</div> : null}
         {formError ? <div className="alert error">{formError}</div> : null}
@@ -60,6 +65,7 @@ export default function LoginPage() {
             className="input"
             type="email"
             value={email}
+            disabled={isSubmitting}
             onChange={(event) => setEmail(event.target.value)}
           />
 
@@ -69,6 +75,7 @@ export default function LoginPage() {
             className="input"
             type="password"
             value={password}
+            disabled={isSubmitting}
             onChange={(event) => setPassword(event.target.value)}
           />
 

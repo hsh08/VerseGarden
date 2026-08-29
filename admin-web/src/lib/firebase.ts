@@ -1,6 +1,11 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { connectFunctionsEmulator, getFunctions } from "firebase/functions";
+
+declare global {
+  var __verseGardenFunctionsEmulatorConnected: boolean | undefined;
+}
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? "AIzaSyDUMMY_VERSEGARDEN_ADMIN_KEY",
@@ -20,6 +25,22 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const functions = getFunctions(
+  app,
+  process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_REGION || "us-central1"
+);
+
+if (
+  process.env.NEXT_PUBLIC_USE_FIREBASE_FUNCTIONS_EMULATOR === "true" &&
+  !globalThis.__verseGardenFunctionsEmulatorConnected
+) {
+  connectFunctionsEmulator(
+    functions,
+    process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_EMULATOR_HOST || "127.0.0.1",
+    Number(process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_EMULATOR_PORT || "5001")
+  );
+  globalThis.__verseGardenFunctionsEmulatorConnected = true;
+}
 
 export function hasFirebaseWebConfig(): boolean {
   return Boolean(

@@ -4,6 +4,7 @@ struct TodayQuietTimeView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var gardenActivityStore: GardenActivityStore
     @EnvironmentObject private var qtStore: QTStore
+    @EnvironmentObject private var communityQTSubmissionCoordinator: CommunityQTSubmissionCoordinator
 
     let todayVerse: TodayVerseContent?
     let planLaunchVerse: LocalBibleVerse?
@@ -68,6 +69,9 @@ struct TodayQuietTimeView: View {
             VStack(alignment: .leading, spacing: GardenTheme.sectionSpacing) {
                 headerCard
                 scriptureCard
+                if isCommunityQuietTime {
+                    communitySharingDisclosureCard
+                }
                 reflectionCard
                 applicationCard
                 prayerCard
@@ -96,6 +100,16 @@ struct TodayQuietTimeView: View {
 
     private var headerCard: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if qtContent.source == .community,
+               let communityName = qtContent.communityName {
+                Text("공동체 QT · \(communityName)")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(GardenTheme.primary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(GardenTheme.softFill)
+                    .clipShape(Capsule())
+            }
             Text("오늘의 QT")
                 .font(.system(size: 32, weight: .bold, design: .rounded))
                 .foregroundStyle(AppColors.primaryText)
@@ -148,6 +162,14 @@ struct TodayQuietTimeView: View {
             VStack(alignment: .leading, spacing: 14) {
                 GardenSectionHeader("말씀을 묵상해요", subtitle: qtContent.devotionalText)
 
+                if isCommunityQuietTime {
+                    privacyLabel(
+                        title: "공동체에 공유됨",
+                        icon: "person.2.fill",
+                        tint: GardenTheme.primary
+                    )
+                }
+
                 promptText(qtContent.reflectionPrompt)
                 AppTextArea(
                     title: "여기에 묵상을 적어보세요",
@@ -162,6 +184,13 @@ struct TodayQuietTimeView: View {
         GardenCard {
             VStack(alignment: .leading, spacing: 14) {
                 GardenSectionHeader("오늘 나에게")
+                if isCommunityQuietTime {
+                    privacyLabel(
+                        title: "공동체에 공유됨",
+                        icon: "person.2.fill",
+                        tint: GardenTheme.primary
+                    )
+                }
                 promptText(qtContent.applicationPrompt)
                 AppTextArea(
                     title: "오늘의 적용을 적어보세요",
@@ -176,6 +205,13 @@ struct TodayQuietTimeView: View {
         GardenCard {
             VStack(alignment: .leading, spacing: 14) {
                 GardenSectionHeader("기도로 마무리해요")
+                if isCommunityQuietTime {
+                    privacyLabel(
+                        title: "나만 볼 수 있음",
+                        icon: "lock.fill",
+                        tint: GardenTheme.tertiary
+                    )
+                }
                 promptText(qtContent.prayerPrompt)
                 AppTextArea(
                     title: "기도를 적어보세요",
@@ -183,6 +219,37 @@ struct TodayQuietTimeView: View {
                     minHeight: 100
                 )
             }
+        }
+    }
+
+    private var communitySharingDisclosureCard: some View {
+        GardenCard(
+            accentGradient: LinearGradient(
+                colors: [GardenTheme.primary.opacity(0.18), GardenTheme.softFill.opacity(0.45)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        ) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: "person.2.fill")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(GardenTheme.secondary)
+                    .frame(width: 42, height: 42)
+                    .background(GardenTheme.softFill)
+                    .clipShape(Circle())
+
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("공동체 QT입니다")
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(AppColors.primaryText)
+                    Text("작성한 묵상과 적용 답변은 공동체 리더와 관리자에게 공유됩니다. 기도 내용은 나에게만 저장됩니다.")
+                        .font(.subheadline)
+                        .foregroundStyle(AppColors.secondaryText)
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .accessibilityElement(children: .combine)
         }
     }
 
@@ -294,6 +361,17 @@ struct TodayQuietTimeView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
+    private func privacyLabel(title: String, icon: String, tint: Color) -> some View {
+        Label(title, systemImage: icon)
+            .font(.caption.weight(.bold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(tint.opacity(0.09))
+            .clipShape(Capsule())
+            .accessibilityLabel(title)
+    }
+
     private func compactActionButton(
         title: String,
         icon: String,
@@ -377,9 +455,20 @@ struct TodayQuietTimeView: View {
         completionMessage = "오늘의 QT가 Garden에 심겼어요."
 
         Task { @MainActor in
+            await communityQTSubmissionCoordinator.submitCompletedRecord(
+                completedRecord,
+                store: qtStore
+            )
+        }
+
+        Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(450))
             dismiss()
         }
+    }
+
+    private var isCommunityQuietTime: Bool {
+        qtContent.source == .community
     }
 }
 

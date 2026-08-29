@@ -25,7 +25,7 @@ enum WidgetPayloadWriter {
             bibleService: bibleService
         )
         SharedVerseProvider.saveWidgetData(data)
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetCenter.shared.reloadTimelines(ofKind: AppGroupKeys.widgetKind)
     }
 
     private static func widgetData(
@@ -50,8 +50,9 @@ enum WidgetPayloadWriter {
                 label: "오늘의 말씀",
                 text: todayVerse.displayText,
                 reference: todayVerse.referenceText,
+                verseID: todayVerse.verse?.id,
                 source: .today,
-                deepLinkURLString: AppGroupKeys.todayVerseURL,
+                deepLinkURLString: todayVerse.verse.map { AppGroupKeys.verseURL(verseID: $0.id) } ?? AppGroupKeys.todayVerseURL,
                 updatedAt: Date()
             )
         }
@@ -87,8 +88,9 @@ enum WidgetPayloadWriter {
             label: "저장한 말씀",
             text: verse.text,
             reference: "\(verse.book) \(verse.chapter):\(verse.verse)",
+            verseID: verse.id,
             source: .saved,
-            deepLinkURLString: AppGroupKeys.favoriteVerseURL,
+            deepLinkURLString: AppGroupKeys.verseURL(verseID: verse.id),
             updatedAt: Date()
         )
     }

@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 
 export type DialogAction = {
@@ -15,6 +16,7 @@ type Props = {
   message: string;
   tone?: "error" | "default";
   actions?: DialogAction[];
+  children?: ReactNode;
   onClose: () => void;
 };
 
@@ -24,6 +26,7 @@ export function FormDialog({
   message,
   tone = "default",
   actions,
+  children,
   onClose
 }: Props) {
   const primaryActionRef = useRef<HTMLButtonElement>(null);
@@ -64,13 +67,14 @@ export function FormDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="form-dialog-title"
-        aria-describedby="form-dialog-message"
+        aria-describedby={message ? "form-dialog-message" : undefined}
       >
         <div className="dialog-accent" aria-hidden="true" />
         <div className="dialog-copy">
           <h2 id="form-dialog-title">{title}</h2>
-          <p id="form-dialog-message">{message}</p>
+          {message ? <p id="form-dialog-message">{message}</p> : null}
         </div>
+        {children}
         <div className="dialog-actions">
           {resolvedActions.map((action, index) => (
             <button

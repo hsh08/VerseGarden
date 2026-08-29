@@ -9,6 +9,7 @@ struct ScriptureHomeView: View {
     @Query(sort: \MyVerseListItem.createdAt, order: .forward) private var items: [MyVerseListItem]
     @Query(sort: \ScriptureWritingPlan.updatedAt, order: .reverse) private var plans: [ScriptureWritingPlan]
     @State private var searchQuery = ""
+    @StateObject private var verseSearch = BibleSearchController(resultLimit: 12)
 
     private let bibleService = BibleDataService.shared
 
@@ -48,6 +49,12 @@ struct ScriptureHomeView: View {
         }
         .navigationTitle("말씀")
         .background(GardenTheme.background)
+        .task {
+            verseSearch.prepare(verses: bibleService.loadAllVerses())
+        }
+        .onChange(of: searchQuery) { _, query in
+            verseSearch.update(query: query)
+        }
     }
 
     private var todayVerseSection: some View {
@@ -133,25 +140,39 @@ struct ScriptureHomeView: View {
                             .stroke(AppColors.border.opacity(0.8), lineWidth: 1)
                     }
 
-                if trimmedSearchQuery.isEmpty {
+                if searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text("검색어를 입력하면 실제 성경 데이터에서 최대 12개 결과를 보여줍니다.")
                         .font(.caption)
                         .foregroundStyle(AppColors.secondaryText)
-                } else if searchResults.isEmpty {
+                } else if verseSearch.isSearching {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("말씀을 찾는 중입니다.")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(AppColors.secondaryText)
+                } else if verseSearch.results.isEmpty {
                     EmptyStateView(
                         icon: "magnifyingglass",
                         title: "검색 결과가 없어요",
                         message: "다른 단어나 책 이름으로 다시 검색해보세요."
                     )
                 } else {
-                    VStack(spacing: 10) {
-                        ForEach(searchResults) { verse in
+                    LazyVStack(spacing: 10) {
+                        ForEach(verseSearch.results) { verse in
                             NavigationLink {
                                 VerseDetailView(verse: verse)
                             } label: {
                                 versePreviewRow(verse)
                             }
                             .buttonStyle(.plain)
+                        }
+
+                        if verseSearch.hasMoreResults {
+                            Text("더 많은 결과가 있습니다. 검색어를 더 구체적으로 입력해보세요.")
+                                .font(.caption)
+                                .foregroundStyle(AppColors.secondaryText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }
@@ -428,11 +449,4 @@ struct ScriptureHomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.medium, style: .continuous))
     }
 
-    private var trimmedSearchQuery: String {
-        searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var searchResults: [LocalBibleVerse] {
-        bibleService.searchVerses(query: trimmedSearchQuery, limit: 12)
-    }
 }

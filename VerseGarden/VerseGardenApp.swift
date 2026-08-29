@@ -57,6 +57,9 @@ private struct AppSceneRootView: View {
     @StateObject private var qtStore = QTStore()
     @StateObject private var todayQuietTimeContentStore = TodayQuietTimeContentStore()
     @StateObject private var writingPlanSelectionStore = WritingPlanSelectionStore()
+    @StateObject private var communityStore = CommunityStore()
+    @StateObject private var communityQTSubmissionCoordinator = CommunityQTSubmissionCoordinator()
+    @StateObject private var deepLinkRouter = VerseGardenDeepLinkRouter()
 
     var body: some View {
         AppRootView()
@@ -74,6 +77,9 @@ private struct AppSceneRootView: View {
             .environmentObject(qtStore)
             .environmentObject(todayQuietTimeContentStore)
             .environmentObject(writingPlanSelectionStore)
+            .environmentObject(communityStore)
+            .environmentObject(communityQTSubmissionCoordinator)
+            .environmentObject(deepLinkRouter)
             .task {
                 configureStoreSyncCallbacks()
                 authViewModel.startAuthStateListener()
@@ -84,6 +90,12 @@ private struct AppSceneRootView: View {
                 gardenActivityStore.setActiveUserID(userID)
                 qtStore.setActiveUserID(userID)
                 writingPlanSelectionStore.setActiveUserID(userID)
+                communityStore.clear()
+                communityQTSubmissionCoordinator.setActiveUserID(userID)
+                todayQuietTimeContentStore.clear()
+            }
+            .onOpenURL { url in
+                deepLinkRouter.handle(url)
             }
     }
 
@@ -131,6 +143,9 @@ private struct AppRootView: View {
     @EnvironmentObject private var likedVerseStore: LikedVerseStore
     @EnvironmentObject private var qtStore: QTStore
     @EnvironmentObject private var writingPlanSelectionStore: WritingPlanSelectionStore
+    @EnvironmentObject private var communityStore: CommunityStore
+    @EnvironmentObject private var todayQuietTimeContentStore: TodayQuietTimeContentStore
+    @EnvironmentObject private var communityQTSubmissionCoordinator: CommunityQTSubmissionCoordinator
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \MyVerseListItem.updatedAt, order: .reverse) private var widgetVerseItems: [MyVerseListItem]
@@ -161,12 +176,19 @@ private struct AppRootView: View {
                 likedVerseStore.setActiveUserID(nil)
                 qtStore.setActiveUserID(nil)
                 writingPlanSelectionStore.setActiveUserID(nil)
+                communityStore.clear()
+                communityQTSubmissionCoordinator.setActiveUserID(nil)
+                todayQuietTimeContentStore.clear()
                 WidgetPayloadWriter.refresh(userID: nil, savedVerseItems: [])
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active, let currentUser = authViewModel.currentUser else { return }
             Task {
+                await communityQTSubmissionCoordinator.flushPending(
+                    userID: currentUser.uid,
+                    store: qtStore
+                )
                 await performUserDataSync(for: currentUser, force: false)
             }
         }
@@ -189,9 +211,15 @@ private struct AppRootView: View {
 
         likedVerseStore.setActiveUserID(currentUser.uid)
         qtStore.setActiveUserID(currentUser.uid)
+        communityQTSubmissionCoordinator.setActiveUserID(currentUser.uid)
         writingPlanSelectionStore.setActiveUserID(currentUser.uid)
 
         await userProfileStore.syncProfile(for: currentUser)
+        await communityStore.load(for: currentUser.uid, force: force)
+        await todayQuietTimeContentStore.loadTodayIfNeeded(
+            community: communityStore.currentCommunity,
+            force: force
+        )
         await userProfileStore.syncSelectedWritingPlanPreference(
             selectionStore: writingPlanSelectionStore,
             for: currentUser
@@ -201,6 +229,10 @@ private struct AppRootView: View {
             store: likedVerseStore
         )
         await qtRecordSyncCoordinator.syncForAuthenticatedUser(
+            userID: currentUser.uid,
+            store: qtStore
+        )
+        await communityQTSubmissionCoordinator.flushPending(
             userID: currentUser.uid,
             store: qtStore
         )
@@ -253,7 +285,9 @@ private struct AppRootView: View {
 }
 
 struct RootTabView: View {
+    @EnvironmentObject private var deepLinkRouter: VerseGardenDeepLinkRouter
     @State private var selectedTab: AppTab = .home
+    @State private var versePath = NavigationPath()
 
     init() {
         Self.configureTabBarAppearance()
@@ -261,8 +295,16 @@ struct RootTabView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            NavigationStack {
+            NavigationStack(path: $versePath) {
                 VerseView()
+                    .navigationDestination(for: VerseNavigationDestination.self) { destination in
+                        switch destination {
+                        case .detail(let verse):
+                            VerseDetailView(verse: verse)
+                        case .write(let verse):
+                            WriteView(localVerse: verse)
+                        }
+                    }
             }
             .tag(AppTab.verse)
             .tabItem {
@@ -302,8 +344,11 @@ struct RootTabView: View {
             }
         }
         .tint(GardenTheme.secondary)
-        .onOpenURL { url in
-            handleDeepLink(url)
+        .task {
+            consumePendingDeepLink()
+        }
+        .onReceive(deepLinkRouter.$pendingDeepLink) { _ in
+            consumePendingDeepLink()
         }
     }
 
@@ -355,22 +400,43 @@ struct RootTabView: View {
         )
     }
 
-    private func handleDeepLink(_ url: URL) {
-        guard url.scheme == "versegarden" else { return }
+    private func consumePendingDeepLink() {
+        guard let deepLink = deepLinkRouter.consumePendingDeepLink() else { return }
 
-        switch url.host {
-        case "profile":
+        switch deepLink {
+        case .profile:
             selectedTab = .profile
-        case "verse":
-            if url.path == "/today" {
-                selectedTab = .home
-            } else {
-                selectedTab = .verse
-            }
-        default:
-            break
+        case .today:
+            selectedTab = .home
+        case .favorite:
+            selectedTab = .verse
+        case .verse(let verseID):
+            openVerse(verseID: verseID) { .detail($0) }
+        case .write(let verseID):
+            openVerse(verseID: verseID) { .write($0) }
         }
     }
+
+    private func openVerse(
+        verseID: String,
+        destination: @escaping (LocalBibleVerse) -> VerseNavigationDestination
+    ) {
+        guard let verse = BibleDataService.shared.getVerse(id: verseID) else {
+            selectedTab = .verse
+            return
+        }
+
+        selectedTab = .verse
+        versePath = NavigationPath()
+        DispatchQueue.main.async {
+            versePath.append(destination(verse))
+        }
+    }
+}
+
+private enum VerseNavigationDestination: Hashable {
+    case detail(LocalBibleVerse)
+    case write(LocalBibleVerse)
 }
 
 private enum AppTab {

@@ -8,6 +8,7 @@ struct FavoriteVersePickerView: View {
     @State private var searchQuery = ""
     @State private var selectedBook: String
     @State private var selectedChapter: Int
+    @StateObject private var verseSearch = BibleSearchController(resultLimit: 20)
 
     private let service = BibleDataService.shared
 
@@ -34,6 +35,12 @@ struct FavoriteVersePickerView: View {
         .navigationTitle("대표 말씀 선택")
         .navigationBarTitleDisplayMode(.inline)
         .background(GardenTheme.background)
+        .task {
+            verseSearch.prepare(verses: service.loadAllVerses())
+        }
+        .onChange(of: searchQuery) { _, query in
+            verseSearch.update(query: query)
+        }
     }
 
     private var headerCard: some View {
@@ -71,20 +78,34 @@ struct FavoriteVersePickerView: View {
                             .stroke(AppColors.border.opacity(0.8), lineWidth: 1)
                     }
 
-                if trimmedSearchQuery.isEmpty {
+                if searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text("예: 요한복음 3:16, 요 3:16, 사랑, 평안")
                         .font(.caption)
                         .foregroundStyle(AppColors.secondaryText)
-                } else if searchResults.isEmpty {
+                } else if verseSearch.isSearching {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("말씀을 찾는 중입니다.")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(AppColors.secondaryText)
+                } else if verseSearch.results.isEmpty {
                     EmptyStateView(
                         icon: "magnifyingglass",
                         title: "검색 결과가 없어요",
                         message: "다른 단어나 장절로 다시 검색해보세요."
                     )
                 } else {
-                    VStack(spacing: 10) {
-                        ForEach(searchResults) { verse in
+                    LazyVStack(spacing: 10) {
+                        ForEach(verseSearch.results) { verse in
                             selectableVerseCard(verse)
+                        }
+
+                        if verseSearch.hasMoreResults {
+                            Text("더 많은 결과가 있습니다. 검색어를 더 구체적으로 입력해보세요.")
+                                .font(.caption)
+                                .foregroundStyle(AppColors.secondaryText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }
@@ -196,14 +217,6 @@ struct FavoriteVersePickerView: View {
                 .buttonStyle(.plain)
             }
         }
-    }
-
-    private var trimmedSearchQuery: String {
-        searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var searchResults: [LocalBibleVerse] {
-        service.searchVerses(query: trimmedSearchQuery, limit: 20)
     }
 
     private var browsedVerses: [LocalBibleVerse] {

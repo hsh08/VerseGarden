@@ -24,42 +24,93 @@ struct RemoteDailyQuietTime: Hashable {
     let questions: [Question]
     let status: String
     let version: Int
+    let communityId: String?
 }
 
 struct DailyQuietTimeContentService {
     private var database: Firestore { Firestore.firestore() }
-    private let dateKeyProvider = DailyQuietTimeDateKeyProvider()
+    private let globalDateKeyProvider = DailyQuietTimeDateKeyProvider()
     private let bibleService = BibleDataService.shared
 
-    func fetchContent(for date: Date = Date()) async throws -> QTContent? {
+    func fetchContent(
+        for date: Date = Date(),
+        community: Community? = nil
+    ) async throws -> QTContent? {
         guard Auth.auth().currentUser != nil else {
             return nil
         }
 
-        let dateKey = dateKeyProvider.dateKey(for: date)
-        let snapshot = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<DocumentSnapshot, Error>) in
-            database
-                .collection("dailyQuietTimes")
-                .document(dateKey)
-                .getDocument { snapshot, error in
-                    if let error {
-                        continuation.resume(throwing: error)
-                    } else if let snapshot {
-                        continuation.resume(returning: snapshot)
-                    } else {
-                        continuation.resume(throwing: FirestoreSyncError.invalidSnapshot)
-                    }
+        if let community, community.status == .active {
+            let communityDateProvider = DailyQuietTimeDateKeyProvider(
+                timeZoneIdentifier: community.timezone
+            )
+            let communityDateKey = communityDateProvider.dateKey(for: date)
+
+            do {
+                let snapshot = try await database
+                    .collection("communities")
+                    .document(community.id)
+                    .collection("dailyQuietTimes")
+                    .document(communityDateKey)
+                    .getDocument()
+
+                if let content = resolveContent(
+                    snapshot: snapshot,
+                    expectedDateKey: communityDateKey,
+                    date: date,
+                    source: .community,
+                    expectedCommunity: community
+                ) {
+                    return content
                 }
+            } catch {
+                #if DEBUG
+                print("Community Daily QT fallback:", error.localizedDescription)
+                #endif
+            }
         }
 
+        let globalDateKey = globalDateKeyProvider.dateKey(for: date)
+        let snapshot = try await database
+            .collection("dailyQuietTimes")
+            .document(globalDateKey)
+            .getDocument()
+
+        return resolveContent(
+            snapshot: snapshot,
+            expectedDateKey: globalDateKey,
+            date: date,
+            source: .global,
+            expectedCommunity: nil
+        )
+    }
+
+    private func resolveContent(
+        snapshot: DocumentSnapshot,
+        expectedDateKey: String,
+        date: Date,
+        source: QTContentSource,
+        expectedCommunity: Community?
+    ) -> QTContent? {
         guard snapshot.exists,
               let data = snapshot.data(),
               let remote = makeRemoteDailyQuietTime(from: data),
-              remote.status == "published" else {
+              remote.status == "published",
+              remote.dateKey == expectedDateKey else {
             return nil
         }
 
-        return makeQTContent(from: remote, date: date)
+        if let expectedCommunity,
+           remote.communityId != expectedCommunity.id {
+            return nil
+        }
+
+        return makeQTContent(
+            from: remote,
+            date: date,
+            source: source,
+            community: expectedCommunity
+        )
     }
 
     private func makeRemoteDailyQuietTime(from data: [String: Any]) -> RemoteDailyQuietTime? {
@@ -102,11 +153,17 @@ struct DailyQuietTimeContentService {
             prayerPrompt: prayerPrompt,
             questions: questions,
             status: status,
-            version: version
+            version: version,
+            communityId: data["communityId"] as? String
         )
     }
 
-    private func makeQTContent(from remote: RemoteDailyQuietTime, date: Date) -> QTContent? {
+    private func makeQTContent(
+        from remote: RemoteDailyQuietTime,
+        date: Date,
+        source: QTContentSource,
+        community: Community?
+    ) -> QTContent? {
         let startVerseId = remote.startVerseId ?? remote.verseId
         let endVerseId = remote.endVerseId ?? startVerseId
         let rangeVerses = bibleService.getVerseRange(startId: startVerseId, endId: endVerseId)
@@ -126,7 +183,9 @@ struct DailyQuietTimeContentService {
 
         return QTContent(
             id: remote.dateKey,
-            date: dateKeyProvider.startOfDay(for: date),
+            date: DailyQuietTimeDateKeyProvider(
+                timeZoneIdentifier: remote.timezone
+            ).startOfDay(for: date),
             verseId: firstVerse.id,
             startVerseId: firstVerse.id,
             endVerseId: lastVerse.id,
@@ -135,24 +194,21 @@ struct DailyQuietTimeContentService {
             verseLines: verseLines,
             title: remote.title,
             devotionalText: remote.devotionalText,
-            reflectionQuestions: [],
+            reflectionQuestions: remote.questions.map(\.prompt),
             reflectionPrompt: remote.reflectionPrompt,
             applicationPrompt: remote.applicationPrompt,
             prayerPrompt: remote.prayerPrompt,
             contentId: remote.dateKey,
             contentDateKey: remote.dateKey,
             contentVersion: remote.version,
-            source: .remote
+            source: source,
+            communityId: community?.id,
+            communityName: community?.name
         )
     }
 
     private func intValue(_ value: Any?) -> Int? {
-        if let value = value as? Int {
-            return value
-        }
-        if let value = value as? NSNumber {
-            return value.intValue
-        }
-        return nil
+        if let value = value as? Int { return value }
+        return (value as? NSNumber)?.intValue
     }
 }

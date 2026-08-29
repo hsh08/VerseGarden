@@ -93,6 +93,18 @@ struct FirestoreQTRecordService {
             data["contentVersion"] = FieldValue.delete()
         }
 
+        if let contentSource = record.contentSource {
+            data["contentSource"] = contentSource.rawValue
+        } else {
+            data["contentSource"] = FieldValue.delete()
+        }
+
+        if let communityId = record.communityId, !communityId.isEmpty {
+            data["communityId"] = communityId
+        } else {
+            data["communityId"] = FieldValue.delete()
+        }
+
         if let completedAt = record.completedAt {
             data["completedAt"] = Timestamp(date: completedAt)
         } else {
@@ -156,6 +168,8 @@ struct FirestoreQTRecordService {
             contentId: data["contentId"] as? String,
             contentDateKey: data["contentDateKey"] as? String,
             contentVersion: intValue(data["contentVersion"]),
+            contentSource: (data["contentSource"] as? String).flatMap(QTContentSource.init(rawValue:)),
+            communityId: data["communityId"] as? String,
             reflectionAnswer: reflectionAnswer,
             applicationText: (data["applicationText"] as? String) ?? "",
             prayerText: (data["prayerText"] as? String) ?? "",

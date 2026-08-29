@@ -3,38 +3,47 @@ import Foundation
 
 @MainActor
 final class TodayQuietTimeContentStore: ObservableObject {
-    @Published private(set) var remoteContent: QTContent?
+    @Published private(set) var resolvedContent: QTContent?
     @Published private(set) var isLoading = false
 
     private let service = DailyQuietTimeContentService()
     private let dateKeyProvider = DailyQuietTimeDateKeyProvider()
-    private var loadedDateKey: String?
+    private var loadedContextKey: String?
 
     func content(fallback: QTContent, for date: Date = Date()) -> QTContent {
-        guard let remoteContent,
-              remoteContent.contentDateKey == dateKeyProvider.dateKey(for: date) else {
-            return fallback
-        }
-        return remoteContent
+        resolvedContent ?? fallback
     }
 
-    func loadTodayIfNeeded(force: Bool = false) async {
+    func loadTodayIfNeeded(
+        community: Community? = nil,
+        force: Bool = false
+    ) async {
         let dateKey = dateKeyProvider.dateKey(for: Date())
-        guard force || loadedDateKey != dateKey else {
+        let contextKey = "\(dateKey)|\(community?.id ?? "global")|\(community?.status.rawValue ?? "none")"
+        guard force || loadedContextKey != contextKey else {
             return
         }
 
-        loadedDateKey = dateKey
+        loadedContextKey = contextKey
         isLoading = true
         defer { isLoading = false }
 
         do {
-            remoteContent = try await service.fetchContent(for: Date())
+            resolvedContent = try await service.fetchContent(
+                for: Date(),
+                community: community
+            )
         } catch {
             #if DEBUG
             print("DailyQuietTimeContentStore fallback:", error.localizedDescription)
             #endif
-            remoteContent = nil
+            resolvedContent = nil
         }
+    }
+
+    func clear() {
+        resolvedContent = nil
+        loadedContextKey = nil
+        isLoading = false
     }
 }

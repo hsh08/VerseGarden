@@ -2,7 +2,8 @@ import Foundation
 
 enum QTContentSource: String, Codable, Hashable {
     case local
-    case remote
+    case global
+    case community
 }
 
 struct QTVerseLine: Identifiable, Codable, Hashable {
@@ -30,6 +31,8 @@ struct QTContent: Identifiable, Hashable {
     let contentDateKey: String?
     let contentVersion: Int?
     let source: QTContentSource
+    let communityId: String?
+    let communityName: String?
 
     init(
         date: Date,
@@ -61,6 +64,8 @@ struct QTContent: Identifiable, Hashable {
         self.contentDateKey = nil
         self.contentVersion = nil
         self.source = .local
+        self.communityId = nil
+        self.communityName = nil
     }
 
     init(
@@ -81,7 +86,9 @@ struct QTContent: Identifiable, Hashable {
         contentId: String?,
         contentDateKey: String?,
         contentVersion: Int?,
-        source: QTContentSource
+        source: QTContentSource,
+        communityId: String? = nil,
+        communityName: String? = nil
     ) {
         self.id = id
         self.date = date
@@ -101,6 +108,8 @@ struct QTContent: Identifiable, Hashable {
         self.contentDateKey = contentDateKey
         self.contentVersion = contentVersion
         self.source = source
+        self.communityId = communityId
+        self.communityName = communityName
     }
 }
 
@@ -116,6 +125,8 @@ struct QTRecord: Identifiable, Codable, Hashable {
     let contentId: String?
     let contentDateKey: String?
     let contentVersion: Int?
+    let contentSource: QTContentSource?
+    let communityId: String?
     var reflectionAnswer: String
     var applicationText: String
     var prayerText: String
@@ -135,6 +146,8 @@ struct QTRecord: Identifiable, Codable, Hashable {
         contentId: String? = nil,
         contentDateKey: String? = nil,
         contentVersion: Int? = nil,
+        contentSource: QTContentSource? = nil,
+        communityId: String? = nil,
         reflectionAnswer: String = "",
         applicationText: String = "",
         prayerText: String = "",
@@ -153,6 +166,8 @@ struct QTRecord: Identifiable, Codable, Hashable {
         self.contentId = contentId
         self.contentDateKey = contentDateKey
         self.contentVersion = contentVersion
+        self.contentSource = contentSource
+        self.communityId = communityId
         self.reflectionAnswer = reflectionAnswer
         self.applicationText = applicationText
         self.prayerText = prayerText
@@ -174,7 +189,9 @@ struct QTRecord: Identifiable, Codable, Hashable {
             verseText: content.verseText,
             contentId: content.contentId,
             contentDateKey: content.contentDateKey,
-            contentVersion: content.contentVersion
+            contentVersion: content.contentVersion,
+            contentSource: content.source,
+            communityId: content.communityId
         )
     }
 

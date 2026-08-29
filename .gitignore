@@ -11,6 +11,9 @@ xcuserdata/
 node_modules/
 admin-web/node_modules/
 admin-tools/node_modules/
+firebase-tests/node_modules/
+functions/node_modules/
+functions/lib/
 admin-web/.next/
 admin-web/tsconfig.tsbuildinfo
 *.tsbuildinfo
@@ -29,3 +32,10 @@ admin-tools/*.service-account.json
 service-account*.json
 *-service-account.json
 *firebase-adminsdk*.json
+
+# Firebase emulator/debug artifacts
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+*.log
+*.pid

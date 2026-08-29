@@ -16,7 +16,7 @@ enum BibleTestament: String, CaseIterable, Identifiable {
     }
 }
 
-struct LocalBibleVerse: Identifiable, Hashable {
+struct LocalBibleVerse: Identifiable, Hashable, Sendable {
     let id: String
     let book: String
     let chapter: Int

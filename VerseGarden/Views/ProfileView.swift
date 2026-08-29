@@ -9,6 +9,7 @@ struct ProfileView: View {
     @EnvironmentObject private var likedVerseStore: LikedVerseStore
     @EnvironmentObject private var gardenActivityStore: GardenActivityStore
     @EnvironmentObject private var qtStore: QTStore
+    @EnvironmentObject private var communityStore: CommunityStore
     @Query(sort: \WritingRecord.completedAt, order: .reverse) private var records: [WritingRecord]
     @Query(sort: \PrayerWritingRecord.completedAt, order: .reverse) private var prayerRecords: [PrayerWritingRecord]
 
@@ -438,59 +439,134 @@ struct ProfileView: View {
 
     private var communitySection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            GardenSectionHeader("공동체", subtitle: "함께 큐티하는 경험을 곧 제공할 예정이에요.")
+            GardenSectionHeader("나의 공동체", subtitle: "함께 말씀을 묵상하는 공동체를 확인합니다.")
 
+            if communityStore.isLoading && !communityStore.hasLoaded {
+                communityLoadingCard
+            } else if let community = communityStore.currentCommunity,
+                      let membership = communityStore.currentMembership {
+                joinedCommunityCard(community: community, membership: membership)
+            } else if let errorMessage = communityStore.errorMessage {
+                communityErrorCard(message: errorMessage)
+            } else {
+                noCommunityCard
+            }
+        }
+    }
+
+    private var communityLoadingCard: some View {
+        GardenCard {
+            HStack(spacing: 14) {
+                ProgressView()
+                    .tint(GardenTheme.primary)
+                Text("공동체 정보를 불러오는 중이에요.")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppColors.secondaryText)
+            }
+            .frame(minHeight: 56)
+        }
+    }
+
+    private var noCommunityCard: some View {
+        GardenCard(
+            accentGradient: LinearGradient(
+                colors: [GardenTheme.primary.opacity(0.20), GardenTheme.tertiary.opacity(0.14)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        ) {
+            VStack(alignment: .leading, spacing: 15) {
+                Label("함께 신앙생활하는 공동체에 참여해보세요.", systemImage: "person.2.fill")
+                    .font(.headline)
+                    .foregroundStyle(AppColors.primaryText)
+
+                NavigationLink {
+                    CommunityJoinView()
+                } label: {
+                    GardenPrimaryButtonLabel(title: "초대 코드로 공동체 참여하기", icon: "ticket.fill")
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func joinedCommunityCard(
+        community: Community,
+        membership: CommunityMembership
+    ) -> some View {
+        NavigationLink {
+            CommunityDetailView()
+        } label: {
             GardenCard(
                 accentGradient: LinearGradient(
-                    colors: [GardenTheme.primary.opacity(0.20), GardenTheme.tertiary.opacity(0.18)],
+                    colors: [GardenTheme.primary.opacity(0.24), GardenTheme.tertiary.opacity(0.14)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
             ) {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: "person.2.fill")
-                            .font(.headline)
-                            .foregroundStyle(GardenTheme.primary)
-                            .frame(width: 40, height: 40)
-                            .background(Color.white.opacity(0.62))
-                            .clipShape(Circle())
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(alignment: .top, spacing: 14) {
+                        Image(systemName: "person.3.fill")
+                            .font(.title3)
+                            .foregroundStyle(GardenTheme.secondary)
+                            .frame(width: 46, height: 46)
+                            .background(Color.white.opacity(0.66))
+                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.medium, style: .continuous))
 
                         VStack(alignment: .leading, spacing: 5) {
-                            Text("공동체 큐티는 곧 함께 사용할 수 있어요")
-                                .font(.headline)
+                            Text(community.name)
+                                .font(.title3.bold())
                                 .foregroundStyle(AppColors.primaryText)
-                            Text("초대 코드는 공동체 기능이 열리면 사용할 수 있어요.")
-                                .font(.subheadline)
-                                .foregroundStyle(AppColors.secondaryText)
+                            Text(membership.role.displayName)
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(GardenTheme.primary)
                         }
+
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(AppColors.secondaryText)
+                            .padding(.top, 8)
                     }
 
-                    Button {} label: {
-                        HStack {
-                            Text("초대 코드 입력")
-                                .font(.subheadline.weight(.bold))
-                            Spacer()
-                            Text("예정")
-                                .font(.caption.weight(.bold))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(AppColors.border.opacity(0.45))
-                                .clipShape(Capsule())
-                        }
-                        .foregroundStyle(AppColors.subtleText)
-                        .frame(minHeight: 46)
-                        .padding(.horizontal, 14)
-                        .background(AppColors.cardTint.opacity(0.58))
-                        .clipShape(RoundedRectangle(cornerRadius: AppRadius.button, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: AppRadius.button, style: .continuous)
-                                .stroke(AppColors.border.opacity(0.62), lineWidth: 1)
-                        }
+                    Divider().overlay(AppColors.border)
+
+                    HStack {
+                        Label("오늘의 공동체 QT", systemImage: "leaf.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(GardenTheme.secondary)
+                        Spacer()
+                        Text("보기")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(GardenTheme.primary)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(true)
                 }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func communityErrorCard(message: String) -> some View {
+        GardenCard {
+            VStack(alignment: .leading, spacing: 14) {
+                Label(message, systemImage: "wifi.exclamationmark")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppColors.secondaryText)
+
+                Button {
+                    Task { await communityStore.retry() }
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.clockwise")
+                        Text("다시 시도")
+                    }
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(GardenTheme.primary)
+                    .frame(maxWidth: .infinity, minHeight: 46)
+                    .background(GardenTheme.softFill)
+                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.button, style: .continuous))
+                }
+                .buttonStyle(.plain)
             }
         }
     }
