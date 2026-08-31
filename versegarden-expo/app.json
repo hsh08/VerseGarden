@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "VerseGarden",
+    "slug": "versegarden-expo",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/versegarden-icon.png",
+    "scheme": "versegarden",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "com.sanghyuk.versegarden",
+      "adaptiveIcon": {
+        "backgroundColor": "#FAF7EF",
+        "foregroundImage": "./assets/versegarden-icon.png"
+      },
+      "predictiveBackGestureEnabled": true,
+      "softwareKeyboardLayoutMode": "resize"
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/versegarden-icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FAF7EF",
+          "image": "./assets/versegarden-icon.png",
+          "imageWidth": 96
+        }
+      ],
+      "expo-sqlite"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
