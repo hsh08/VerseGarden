@@ -19,52 +19,67 @@ const parseVerseId = (value) => {
 };
 const normalize = (value) => value.trim().toLocaleLowerCase("ko-KR");
 const compactReference = (value) => normalize(value).replace(/\s+/g, "").replace(/장/g, ":").replace(/절/g, "");
+const chapterKey = (book, chapter) => `${book}\u0000${chapter}`;
 
-const indexStartedAt = performance.now();
+const browseStartedAt = performance.now();
 const versesWithID = verses.map((verse) => ({ ...verse, id: createVerseId(verse.book, verse.chapter, verse.verse) }));
-const entries = versesWithID.map((verse) => ({ verse, normalizedText: normalize(verse.text), normalizedReference: compactReference(`${verse.book}${verse.chapter}:${verse.verse}`), normalizedShortReference: compactReference(`${verse.book.slice(0, 1)}${verse.chapter}:${verse.verse}`) }));
-const entriesByBook = new Map();
-for (const entry of entries) {
-  const key = normalize(entry.verse.book);
-  entriesByBook.set(key, [...(entriesByBook.get(key) ?? []), entry]);
+const versesByID = new Map(versesWithID.map((verse) => [verse.id, verse]));
+const books = new Map();
+const versesByBookChapter = new Map();
+for (const verse of versesWithID) {
+  const book = books.get(verse.book) ?? { name: verse.book, testament: verse.testament, chapters: new Set() };
+  book.chapters.add(verse.chapter);
+  books.set(verse.book, book);
+  const key = chapterKey(verse.book, verse.chapter);
+  const chapterVerses = versesByBookChapter.get(key) ?? [];
+  chapterVerses.push(verse);
+  versesByBookChapter.set(key, chapterVerses);
 }
-const aliases = new Map();
-for (const book of entriesByBook.keys()) {
-  for (const alias of [book, book.slice(0, 1)]) aliases.set(alias, new Set([...(aliases.get(alias) ?? []), book]));
+const bookList = [...books.values()].map((book) => ({ ...book, chapters: [...book.chapters] }));
+const bookAliases = new Map();
+for (const book of bookList) {
+  const normalizedBook = normalize(book.name);
+  for (const alias of [normalizedBook, normalizedBook.slice(0, 1)]) {
+    const candidates = bookAliases.get(alias) ?? [];
+    candidates.push(book);
+    bookAliases.set(alias, candidates);
+  }
 }
-const bookAliases = new Map([...aliases.entries()].map(([alias, values]) => [alias, [...values].sort((left, right) => right.length - left.length)]));
-const indexBuildMilliseconds = performance.now() - indexStartedAt;
+const browseIndexMilliseconds = performance.now() - browseStartedAt;
 
-function limitResults(matches, limit) {
-  return { verses: matches.slice(0, limit).map((entry) => entry.verse), hasMoreResults: matches.length > limit };
+function limitResults(items, limit) {
+  const verses = items.slice(0, limit);
+  return { verses, hasMoreResults: items.length > verses.length };
+}
+
+function structuredReferenceSearch(compactQuery, limit) {
+  const alias = [...bookAliases.keys()].sort((left, right) => right.length - left.length).find((value) => compactQuery.startsWith(value));
+  if (!alias) return null;
+  const matchingBooks = bookAliases.get(alias);
+  const suffix = compactQuery.slice(alias.length);
+  if (!matchingBooks || (suffix.length > 0 && !/^\d/.test(suffix))) return null;
+  if (!suffix) return limitResults(matchingBooks.flatMap((book) => book.chapters.flatMap((chapter) => versesByBookChapter.get(chapterKey(book.name, chapter)) ?? [])), limit);
+
+  const [chapterValue, verseValue] = suffix.split(":", 2);
+  const chapter = Number(chapterValue);
+  const verse = verseValue === undefined ? null : Number(verseValue);
+  if (!Number.isInteger(chapter) || (verseValue !== undefined && !Number.isInteger(verse))) return null;
+  return limitResults(matchingBooks.flatMap((book) => (versesByBookChapter.get(chapterKey(book.name, chapter)) ?? []).filter((candidate) => verse === null || candidate.verse === verse)), limit);
 }
 
 function search(query, limit = 12) {
   const normalizedQuery = normalize(query);
   const compactQuery = compactReference(query);
   if (!normalizedQuery || limit < 1) return { verses: [], hasMoreResults: false };
-
-  const alias = [...bookAliases.keys()].sort((left, right) => right.length - left.length).find((value) => compactQuery.startsWith(value));
-  if (alias) {
-    const suffix = compactQuery.slice(alias.length);
-    if (!suffix || /^\d/.test(suffix)) {
-      const candidates = bookAliases.get(alias).flatMap((book) => entriesByBook.get(book) ?? []);
-      if (!suffix) return limitResults(candidates, limit);
-      const [chapterValue, verseValue] = suffix.split(":", 2);
-      const chapter = Number(chapterValue);
-      const verse = verseValue === undefined ? null : Number(verseValue);
-      if (Number.isInteger(chapter) && (verse === null || Number.isInteger(verse))) return limitResults(candidates.filter((entry) => entry.verse.chapter === chapter && (verse === null || entry.verse.verse === verse)), limit);
-    }
-  }
-
-  return limitResults(entries.filter((entry) => entry.normalizedText.includes(normalizedQuery) || entry.normalizedReference.includes(compactQuery) || entry.normalizedShortReference.includes(compactQuery)), limit);
+  return structuredReferenceSearch(compactQuery, limit) ?? limitResults(versesWithID.filter((verse) => verse.text.includes(normalizedQuery)), limit);
 }
 
 assert.equal(verses.length, 31089, "The bundled dataset verse count changed unexpectedly.");
 assert.equal(createVerseId("창세기", 1, 1), "창세기-1-1");
 assert.deepEqual(parseVerseId("마태복음-11-28"), { book: "마태복음", chapter: 11, verse: 28 });
 assert.equal(parseVerseId("malformed"), null);
-assert.equal(new Set(versesWithID.map((verse) => verse.id)).size, versesWithID.length, "Verse IDs must be unique.");
+assert.equal(versesByID.size, versesWithID.length, "Verse IDs must be unique.");
+assert.equal(versesWithID.every((verse, index) => verse.id === createVerseId(verses[index].book, verses[index].chapter, verses[index].verse) && verse.text === verses[index].text), true, "Stable IDs and source text must remain canonical.");
 assert.equal(search("창세기 1:1").verses[0]?.id, "창세기-1-1");
 assert.equal(search("마태복음 11:28").verses[0]?.id, "마태복음-11-28");
 assert.equal(search("창세기 1").verses.every((verse) => verse.book === "창세기" && verse.chapter === 1), true);
@@ -81,6 +96,7 @@ const benchmark = (query) => {
 console.log(JSON.stringify({
   verseCount: verses.length,
   dataLoadMilliseconds: Number(dataLoadMilliseconds.toFixed(3)),
-  indexBuildMilliseconds: Number(indexBuildMilliseconds.toFixed(3)),
+  browseIndexMilliseconds: Number(browseIndexMilliseconds.toFixed(3)),
+  derivedSearchAsset: "none (canonical source text is searched directly)",
   benchmarks: Object.fromEntries(["사랑", "예수", "요한", "창세기", "창세기 1:1", "마태복음 11", "마태복음 11:28"].map((query) => [query, benchmark(query)])),
 }, null, 2));

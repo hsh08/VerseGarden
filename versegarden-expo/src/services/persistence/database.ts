@@ -1,5 +1,7 @@
 import * as SQLite from "expo-sqlite";
 
+import { traceStartup } from "@/services/diagnostics/startupTimeline";
+
 const DATABASE_NAME = "versegarden.db";
 const SCHEMA_VERSION = 1;
 let databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
@@ -10,6 +12,7 @@ export async function initializeDatabase(): Promise<SQLite.SQLiteDatabase> {
 }
 
 async function openAndMigrateDatabase(): Promise<SQLite.SQLiteDatabase> {
+  traceStartup("SQLite initialization started");
   const database = await SQLite.openDatabaseAsync(DATABASE_NAME);
   await database.execAsync(`
     PRAGMA journal_mode = WAL;
@@ -33,5 +36,6 @@ async function openAndMigrateDatabase(): Promise<SQLite.SQLiteDatabase> {
       ["schema_version", String(SCHEMA_VERSION), new Date().toISOString()],
     );
   }
+  traceStartup("SQLite initialization completed");
   return database;
 }

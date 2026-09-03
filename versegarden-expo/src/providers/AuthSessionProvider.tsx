@@ -6,6 +6,7 @@ import { authErrorMessage, profileErrorMessage } from "@/features/auth/authError
 import { type UserProfile } from "@/features/profile/UserProfile";
 import { authService } from "@/services/auth/authService";
 import { profileRepository } from "@/services/profile/profileRepository";
+import { traceStartup } from "@/services/diagnostics/startupTimeline";
 
 import { AppBootstrapContext } from "./AppBootstrapContext";
 
@@ -39,6 +40,7 @@ export function AuthSessionProvider({ children }: PropsWithChildren) {
   const activeUserID = useRef<string | null>(null);
 
   const loadProfile = useCallback(async (nextUser: User) => {
+    traceStartup("Authenticated profile load started", { authenticated: true });
     setPhase("profileLoading");
     setProfile(null);
     setErrorMessage(null);
@@ -47,11 +49,13 @@ export function AuthSessionProvider({ children }: PropsWithChildren) {
       if (activeUserID.current !== nextUser.uid) return;
       setProfile(resolved);
       setPhase(resolved.onboardingCompleted ? "ready" : "onboardingRequired");
+      traceStartup("Authenticated profile load completed", { onboardingCompleted: resolved.onboardingCompleted });
     } catch (error) {
       if (activeUserID.current !== nextUser.uid) return;
       setProfile(null);
       setErrorMessage(profileErrorMessage(error));
       setPhase("profileError");
+      traceStartup("Authenticated profile load failed");
     }
   }, []);
 
@@ -78,9 +82,11 @@ export function AuthSessionProvider({ children }: PropsWithChildren) {
         setErrorMessage(null);
         setIsSubmitting(false);
         if (!nextUser) {
+          traceStartup("Auth observer resolved signed out", { authenticated: false });
           setPhase("signedOut");
           return;
         }
+        traceStartup("Auth observer resolved authenticated", { authenticated: true });
         void loadProfile(nextUser);
       });
     } catch {

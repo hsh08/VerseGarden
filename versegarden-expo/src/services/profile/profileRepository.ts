@@ -4,6 +4,22 @@ import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { dateFromFirestore, normalizedOptionalString, type UserProfile, type UserProfileDocument } from "@/features/profile/UserProfile";
 import { getFirebaseServices } from "@/services/firebase";
 
+const profileReadTimeoutMilliseconds = 12_000;
+
+function logProfileRead(stage: "started" | "resolved" | "rejected" | "timeout", startedAt: number, error?: unknown) {
+  if (!__DEV__) return;
+
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
+  console.info("[Profile Bootstrap Diagnostics]", {
+    stage,
+    authUserExists: Boolean(getFirebaseServices()?.auth.currentUser),
+    elapsedMilliseconds: Date.now() - startedAt,
+    errorCode: code,
+    errorCategory: code?.includes("permission") ? "permission" : code?.includes("network") || code?.includes("unavailable") ? "network" : error ? "other" : undefined,
+    timestamp: new Date().toISOString(),
+  });
+}
+
 function profileDocument(uid: string) {
   const services = getFirebaseServices();
   if (!services) throw new Error("Firebase configuration is unavailable.");
@@ -27,8 +43,24 @@ function decodeProfile(id: string, data: UserProfileDocument, user: User): UserP
 }
 
 async function fetchExistingProfile(user: User): Promise<UserProfile | null> {
-  const snapshot = await getDoc(profileDocument(user.uid));
-  return snapshot.exists() ? decodeProfile(snapshot.id, snapshot.data() as UserProfileDocument, user) : null;
+  const startedAt = Date.now();
+  logProfileRead("started", startedAt);
+  let timeoutID: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const snapshot = await Promise.race([
+      getDoc(profileDocument(user.uid)),
+      new Promise<never>((_, reject) => {
+        timeoutID = setTimeout(() => reject(new Error("profile-read-timeout")), profileReadTimeoutMilliseconds);
+      }),
+    ]);
+    logProfileRead("resolved", startedAt);
+    return snapshot.exists() ? decodeProfile(snapshot.id, snapshot.data() as UserProfileDocument, user) : null;
+  } catch (error) {
+    logProfileRead(error instanceof Error && error.message === "profile-read-timeout" ? "timeout" : "rejected", startedAt, error);
+    throw error;
+  } finally {
+    if (timeoutID) clearTimeout(timeoutID);
+  }
 }
 
 export const profileRepository = {

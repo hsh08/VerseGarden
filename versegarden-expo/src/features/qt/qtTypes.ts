@@ -25,6 +25,8 @@ export type QTContent = {
   communityName?: string;
 };
 
+export type QTContentPreview = Pick<QTContent, "dateKey" | "title" | "devotionalText" | "source" | "communityId" | "communityName">;
+
 export type QTRecord = {
   id: string;
   dateKey: string;
@@ -56,8 +58,8 @@ export function isQTComplete(record: QTRecord | null | undefined): boolean {
   return Boolean(record?.completedAt);
 }
 
-export function dateKeyFor(value = new Date()): string {
-  const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" });
+export function dateKeyFor(value = new Date(), timeZone = "Asia/Seoul"): string {
+  const formatter = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
   const parts = Object.fromEntries(formatter.formatToParts(value).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
   return `${parts.year}-${parts.month}-${parts.day}`;
 }

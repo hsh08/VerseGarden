@@ -1,10 +1,11 @@
 import { collection, doc, getDoc, onSnapshot, serverTimestamp, setDoc, Timestamp } from "firebase/firestore";
 
 import type { BibleRepository } from "@/features/bible/bibleRepository";
+import type { CommunityMembership } from "@/features/community/communityTypes";
 import { createVerseReference } from "@/features/bible/bibleTypes";
 import { firestoreDate, requireCurrentUserID, requireFirestore } from "@/features/shared/firestore";
 
-import { dateForKey, dateKeyFor, type QTContent, type QTContentSource, type QTRecord } from "./qtTypes";
+import { dateForKey, dateKeyFor, type QTContent, type QTContentPreview, type QTContentSource, type QTRecord } from "./qtTypes";
 
 function recordsCollection() { return collection(requireFirestore(), "users", requireCurrentUserID(), "qtRecords"); }
 
@@ -47,8 +48,9 @@ function recordFromDocument(id: string, value: Record<string, unknown>): QTRecor
   };
 }
 
-function contentFromRemote(dateKey: string, value: Record<string, unknown>, repository: BibleRepository): QTContent | null {
-  if (value.status !== "published" || value.dateKey !== dateKey || typeof value.verseId !== "string" || typeof value.reference !== "string" || typeof value.title !== "string" || typeof value.devotionalText !== "string" || typeof value.reflectionPrompt !== "string" || typeof value.applicationPrompt !== "string" || typeof value.prayerPrompt !== "string" || typeof value.version !== "number") return null;
+function contentFromRemote(dateKey: string, value: Record<string, unknown>, repository: BibleRepository, source: QTContentSource, community?: CommunityMembership): QTContent | null {
+  if (value.status !== "published" || value.dateKey !== dateKey || typeof value.timezone !== "string" || typeof value.translation !== "string" || typeof value.verseId !== "string" || typeof value.reference !== "string" || typeof value.title !== "string" || typeof value.devotionalText !== "string" || typeof value.reflectionPrompt !== "string" || typeof value.applicationPrompt !== "string" || typeof value.prayerPrompt !== "string" || typeof value.version !== "number") return null;
+  if (source === "community" && (!community || value.communityId !== community.communityId)) return null;
   const startVerseId = optionalString(value.startVerseId) ?? value.verseId;
   const endVerseId = optionalString(value.endVerseId) ?? startVerseId;
   const start = repository.getVerse(startVerseId);
@@ -64,7 +66,13 @@ function contentFromRemote(dateKey: string, value: Record<string, unknown>, repo
     return true;
   })));
   const resolved = verseLines.length ? verseLines : [start];
-  return { id: dateKey, dateKey, date: dateForKey(dateKey), verseId: resolved[0].id, startVerseId: resolved[0].id, endVerseId: resolved.at(-1)?.id, reference: value.reference, verseText: resolved.map((verse) => verse.text).join("\n"), verseLines: resolved, title: value.title, devotionalText: value.devotionalText, reflectionPrompt: value.reflectionPrompt, applicationPrompt: value.applicationPrompt, prayerPrompt: value.prayerPrompt, contentId: dateKey, contentDateKey: dateKey, contentVersion: value.version, source: "global" };
+  return { id: dateKey, dateKey, date: dateForKey(dateKey), verseId: resolved[0].id, startVerseId: resolved[0].id, endVerseId: resolved.at(-1)?.id, reference: value.reference, verseText: resolved.map((verse) => verse.text).join("\n"), verseLines: resolved, title: value.title, devotionalText: value.devotionalText, reflectionPrompt: value.reflectionPrompt, applicationPrompt: value.applicationPrompt, prayerPrompt: value.prayerPrompt, contentId: dateKey, contentDateKey: dateKey, contentVersion: value.version, source, ...(community ? { communityId: community.communityId, communityName: community.communityName } : {}) };
+}
+
+function previewFromRemote(dateKey: string, value: Record<string, unknown>, source: QTContentSource, community?: CommunityMembership): QTContentPreview | null {
+  if (value.status !== "published" || value.dateKey !== dateKey || typeof value.title !== "string" || typeof value.devotionalText !== "string") return null;
+  if (source === "community" && (!community || value.communityId !== community.communityId)) return null;
+  return { dateKey, title: value.title, devotionalText: value.devotionalText, source, ...(community ? { communityId: community.communityId, communityName: community.communityName } : {}) };
 }
 
 function localContent(repository: BibleRepository, date = new Date()): QTContent {
@@ -89,12 +97,24 @@ export const qtRepository = {
       onValue([...deduped.values()].sort((left, right) => right.date.getTime() - left.date.getTime()));
     }, onError);
   },
-  async resolveToday(repository: BibleRepository, date = new Date()): Promise<QTContent> {
+  async resolveToday(repository: BibleRepository, date = new Date(), community?: CommunityMembership | null): Promise<QTContent> {
+    if (community?.communityStatus === "active" && community.membershipStatus === "active") {
+      const communityDateKey = dateKeyFor(date, community.timezone);
+      try {
+        const remote = await getDoc(doc(requireFirestore(), "communities", community.communityId, "dailyQuietTimes", communityDateKey));
+        if (remote.exists()) {
+          const content = contentFromRemote(communityDateKey, remote.data(), repository, "community", community);
+          if (content) return content;
+        }
+      } catch {
+        // A denied or unavailable Community QT must not block the global/local fallback.
+      }
+    }
     const dateKey = dateKeyFor(date);
     try {
       const remote = await getDoc(doc(requireFirestore(), "dailyQuietTimes", dateKey));
       if (remote.exists()) {
-        const content = contentFromRemote(dateKey, remote.data(), repository);
+        const content = contentFromRemote(dateKey, remote.data(), repository, "global");
         if (content) return content;
       }
     } catch {
@@ -102,7 +122,32 @@ export const qtRepository = {
     }
     return localContent(repository, date);
   },
-  async save(content: QTContent, input: Pick<QTRecord, "reflectionAnswer" | "applicationText" | "prayerText">, completed: boolean) {
+  async resolveTodayPreview(date = new Date(), community?: CommunityMembership | null): Promise<QTContentPreview> {
+    if (community?.communityStatus === "active" && community.membershipStatus === "active") {
+      const communityDateKey = dateKeyFor(date, community.timezone);
+      try {
+        const remote = await getDoc(doc(requireFirestore(), "communities", community.communityId, "dailyQuietTimes", communityDateKey));
+        if (remote.exists()) {
+          const content = previewFromRemote(communityDateKey, remote.data(), "community", community);
+          if (content) return content;
+        }
+      } catch {
+        // Home metadata follows the same non-blocking Community -> global -> local fallback as the QT screen.
+      }
+    }
+    const dateKey = dateKeyFor(date);
+    try {
+      const remote = await getDoc(doc(requireFirestore(), "dailyQuietTimes", dateKey));
+      if (remote.exists()) {
+        const content = previewFromRemote(dateKey, remote.data(), "global");
+        if (content) return content;
+      }
+    } catch {
+      // The local preview remains available when remote metadata cannot be read.
+    }
+    return { dateKey, title: "오늘의 QT", devotionalText: "말씀을 읽고 묵상과 기도를 남겨보세요.", source: "local" };
+  },
+  async save(content: QTContent, input: Pick<QTRecord, "reflectionAnswer" | "applicationText" | "prayerText">, completed: boolean): Promise<QTRecord> {
     const now = new Date();
     const id = `qt-${content.contentDateKey ?? content.dateKey}`;
     const reference = doc(recordsCollection(), id);
@@ -112,5 +157,14 @@ export const qtRepository = {
     await setDoc(reference, {
       recordId: id, qtId: id, dateKey: content.contentDateKey ?? content.dateKey, date: Timestamp.fromDate(content.date), verseId: content.verseId ?? null, startVerseId: content.startVerseId ?? null, endVerseId: content.endVerseId ?? null, reference: content.reference, verseText: content.verseText, contentId: content.contentId ?? null, contentDateKey: content.contentDateKey ?? null, contentVersion: content.contentVersion ?? null, contentSource: content.source, communityId: content.communityId ?? null, reflectionAnswer: input.reflectionAnswer, reflectionAnswers: input.reflectionAnswer.trim() ? [input.reflectionAnswer] : [], applicationText: input.applicationText, prayerText: input.prayerText, createdAt: Timestamp.fromDate(createdAt), updatedAt: Timestamp.fromDate(now), lastSyncedAt: serverTimestamp(), ...(completed ? { completedAt: Timestamp.fromDate(existingCompletedAt ?? now) } : {}),
     }, { merge: true });
+    const completedAt = completed ? existingCompletedAt ?? now : existingCompletedAt ?? null;
+    return {
+      id, dateKey: content.contentDateKey ?? content.dateKey, date: content.date, verseId: content.verseId,
+      startVerseId: content.startVerseId, endVerseId: content.endVerseId, reference: content.reference,
+      verseText: content.verseText, contentId: content.contentId, contentDateKey: content.contentDateKey,
+      contentVersion: content.contentVersion, contentSource: content.source, communityId: content.communityId,
+      reflectionAnswer: input.reflectionAnswer, applicationText: input.applicationText, prayerText: input.prayerText,
+      completedAt, createdAt, updatedAt: now,
+    };
   },
 };

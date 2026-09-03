@@ -47,6 +47,7 @@
     "validate:phase4": "node scripts/validate-phase4.mjs",
     "validate:phase5": "node scripts/validate-phase5.mjs",
     "validate:phase6": "node scripts/validate-phase6.mjs",
+    "validate:phase7": "node scripts/validate-phase7.mjs",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
     "doctor": "npx expo-doctor"
