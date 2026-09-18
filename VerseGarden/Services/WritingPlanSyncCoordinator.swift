@@ -50,33 +50,36 @@ final class WritingPlanSyncCoordinator: ObservableObject {
         } catch {}
     }
 
-    func updatePlanIfNeeded(localPlanID: UUID, userID: String?, modelContext: ModelContext) async {
-        guard let userID = validatedCurrentUserID(for: userID) else { return }
+    func updatePlanIfNeeded(localPlanID: UUID, userID: String?, modelContext: ModelContext) async -> Bool {
+        guard let userID = validatedCurrentUserID(for: userID) else { return false }
 
         do {
             guard let plan = try fetchAllPlans(modelContext: modelContext).first(where: { $0.id == localPlanID }) else {
-                return
+                return false
             }
-            guard plan.ownerUserId == userID else { return }
+            guard plan.ownerUserId == userID else { return false }
             if plan.remoteDocumentId == nil {
                 try await upload(plan: plan, userID: userID, modelContext: modelContext)
                 try await uploadPendingAssignments(for: userID, planID: localPlanID, modelContext: modelContext)
-                return
+                return true
             }
             try await service.updatePlan(plan, for: userID)
             plan.lastSyncedAt = Date()
             try modelContext.save()
-        } catch {}
+            return true
+        } catch {
+            return false
+        }
     }
 
-    func syncPlanAndAssignments(localPlanID: UUID, userID: String?, modelContext: ModelContext) async {
-        guard let userID = validatedCurrentUserID(for: userID) else { return }
+    func syncPlanAndAssignments(localPlanID: UUID, userID: String?, modelContext: ModelContext) async -> Bool {
+        guard let userID = validatedCurrentUserID(for: userID) else { return false }
 
         do {
             guard let plan = try fetchAllPlans(modelContext: modelContext).first(where: { $0.id == localPlanID }) else {
-                return
+                return false
             }
-            guard plan.ownerUserId == userID else { return }
+            guard plan.ownerUserId == userID else { return false }
 
             if plan.remoteDocumentId == nil {
                 try await upload(plan: plan, userID: userID, modelContext: modelContext)
@@ -86,7 +89,7 @@ final class WritingPlanSyncCoordinator: ObservableObject {
                 try modelContext.save()
             }
 
-            guard let planRemoteId = plan.remoteDocumentId, !planRemoteId.isEmpty else { return }
+            guard let planRemoteId = plan.remoteDocumentId, !planRemoteId.isEmpty else { return false }
 
             let remoteAssignments = try await service.fetchAssignments(
                 for: userID,
@@ -100,7 +103,10 @@ final class WritingPlanSyncCoordinator: ObservableObject {
                 planRemoteId: planRemoteId,
                 modelContext: modelContext
             )
-        } catch {}
+            return true
+        } catch {
+            return false
+        }
     }
 
     func updateAssignmentIfNeeded(localAssignmentID: UUID, userID: String?, modelContext: ModelContext) async {
@@ -137,18 +143,18 @@ final class WritingPlanSyncCoordinator: ObservableObject {
         userID: String?,
         modelContext: ModelContext
     ) async {
-        await updatePlanIfNeeded(localPlanID: localPlanID, userID: userID, modelContext: modelContext)
+        _ = await updatePlanIfNeeded(localPlanID: localPlanID, userID: userID, modelContext: modelContext)
         await updateAssignmentIfNeeded(localAssignmentID: localAssignmentID, userID: userID, modelContext: modelContext)
     }
 
-    func deletePlanIfNeeded(localPlanID: UUID, userID: String?, modelContext: ModelContext) async {
-        guard let userID = validatedCurrentUserID(for: userID) else { return }
+    func deletePlanIfNeeded(localPlanID: UUID, userID: String?, modelContext: ModelContext) async -> Bool {
+        guard let userID = validatedCurrentUserID(for: userID) else { return false }
 
         do {
             guard let plan = try fetchAllPlans(modelContext: modelContext).first(where: { $0.id == localPlanID }) else {
-                return
+                return false
             }
-            guard plan.ownerUserId == userID else { return }
+            guard plan.ownerUserId == userID else { return false }
 
             if let remoteDocumentId = plan.remoteDocumentId, !remoteDocumentId.isEmpty {
                 try await service.deletePlan(remoteDocumentId: remoteDocumentId, for: userID)
@@ -158,7 +164,10 @@ final class WritingPlanSyncCoordinator: ObservableObject {
             assignments.forEach { modelContext.delete($0) }
             modelContext.delete(plan)
             try modelContext.save()
-        } catch {}
+            return true
+        } catch {
+            return false
+        }
     }
 
     func stopSync() {

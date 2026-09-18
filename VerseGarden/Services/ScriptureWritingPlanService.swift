@@ -315,19 +315,32 @@ enum ScriptureWritingPlanService {
         try modelContext.save()
     }
 
-    static func canModifyRangeOrStartDate(
+    /// A saved verse is user content even when its day has not yet reached the
+    /// completed state. Regenerating such an assignment would orphan its record.
+    static func hasWritingHistory(
         for plan: ScriptureWritingPlan,
         assignments: [PlanDayAssignment],
         userID: String?
     ) -> Bool {
         self.assignments(for: plan, from: assignments, userID: userID)
-            .allSatisfy { $0.state != .completed }
+            .contains { $0.state == .completed || !$0.completionRecordIds.isEmpty }
+    }
+
+    static func canModifyRangeOrStartDate(
+        for plan: ScriptureWritingPlan,
+        assignments: [PlanDayAssignment],
+        userID: String?
+    ) -> Bool {
+        !hasWritingHistory(for: plan, assignments: assignments, userID: userID)
     }
 
     static func canExtendDuration(
-        for plan: ScriptureWritingPlan
+        for plan: ScriptureWritingPlan,
+        assignments: [PlanDayAssignment],
+        userID: String?
     ) -> Bool {
-        plan.status == .active || plan.status == .paused
+        (plan.status == .active || plan.status == .paused)
+            && !hasWritingHistory(for: plan, assignments: assignments, userID: userID)
     }
 
     static func minimumAllowedDuration(
@@ -336,6 +349,9 @@ enum ScriptureWritingPlanService {
         userID: String?,
         calendar: Calendar = .current
     ) -> Int {
+        guard hasWritingHistory(for: plan, assignments: assignments, userID: userID) else {
+            return 1
+        }
         let completedCount = self.assignments(for: plan, from: assignments, userID: userID)
             .filter { $0.state == .completed }
             .count
@@ -357,6 +373,13 @@ enum ScriptureWritingPlanService {
             .contains { $0.state == .completed }
     }
 
+    static func endPlan(_ plan: ScriptureWritingPlan, modelContext: ModelContext) throws {
+        guard !plan.status.isTerminal else { return }
+        plan.status = .cancelled
+        plan.updatedAt = Date()
+        try modelContext.save()
+    }
+
     static func applyEdits(
         to plan: ScriptureWritingPlan,
         userID: String?,
@@ -366,12 +389,13 @@ enum ScriptureWritingPlanService {
         newStartChapter: Int,
         newEndChapter: Int,
         newTotalDays: Int,
+        newFolderColorRaw: String?,
         modelContext: ModelContext,
         calendar: Calendar = .current
     ) throws {
         let userID = userID ?? plan.ownerUserId
         let assignments = try fetchAssignments(for: plan, userID: userID, modelContext: modelContext)
-        let hasCompletedAssignments = assignments.contains { $0.state == .completed }
+        let hasWritingHistory = hasWritingHistory(for: plan, assignments: assignments, userID: userID)
         let isRangeChanged = plan.book != newBook || plan.startChapter != newStartChapter || plan.endChapter != newEndChapter
         let isStartDateChanged = !calendar.isDate(plan.startDate, inSameDayAs: newStartDate)
         let isDurationChanged = plan.totalDays != newTotalDays
@@ -383,6 +407,7 @@ enum ScriptureWritingPlanService {
         )
 
         plan.title = newTitle
+        plan.folderColorRaw = newFolderColorRaw
 
         if !isRangeChanged && !isStartDateChanged && !isDurationChanged {
             plan.updatedAt = Date()
@@ -394,23 +419,10 @@ enum ScriptureWritingPlanService {
             throw ScriptureWritingPlanLocalError.durationReductionBlocked
         }
 
-        if hasCompletedAssignments {
-            if isRangeChanged || isStartDateChanged {
+        if hasWritingHistory {
+            if isRangeChanged || isStartDateChanged || isDurationChanged {
                 throw ScriptureWritingPlanLocalError.unsafeRegeneration
             }
-            if newTotalDays == plan.totalDays {
-                plan.updatedAt = Date()
-                try modelContext.save()
-                return
-            }
-            try extendPlanDuration(
-                plan,
-                assignments: assignments,
-                userID: userID,
-                newTotalDays: newTotalDays,
-                modelContext: modelContext,
-                calendar: calendar
-            )
             plan.updatedAt = Date()
             try modelContext.save()
             return
@@ -465,7 +477,7 @@ enum ScriptureWritingPlanService {
         modelContext: ModelContext,
         calendar: Calendar
     ) throws {
-        guard canExtendDuration(for: plan) else {
+        guard canExtendDuration(for: plan, assignments: assignments, userID: userID) else {
             throw ScriptureWritingPlanLocalError.durationExtensionBlocked
         }
 

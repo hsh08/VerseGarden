@@ -12,6 +12,7 @@ struct WriteView: View {
 
     private let service = BibleDataService.shared
     private let sourceType: WritingSourceType
+    private let showsFullScreenCloseButton: Bool
 
     @State private var currentVerse: VersePayload?
     @State private var writingContext: WritingContext
@@ -21,13 +22,14 @@ struct WriteView: View {
     @State private var lastSavedVerseID: String?
     @State private var typingAnalysis: TypingAnalysis = .empty
 
-    init(verse: BibleVerse?, sourceType: WritingSourceType = .direct) {
+    init(verse: BibleVerse?, sourceType: WritingSourceType = .direct, showsFullScreenCloseButton: Bool = false) {
         _currentVerse = State(initialValue: verse.map { VersePayload(id: $0.id, book: $0.book, chapter: $0.chapter, verse: $0.verse, text: $0.text) })
         _writingContext = State(initialValue: .bible)
         self.sourceType = sourceType
+        self.showsFullScreenCloseButton = showsFullScreenCloseButton
     }
 
-    init(localVerse: LocalBibleVerse, sourceType: WritingSourceType = .direct, writingContext: WritingContext = .bible) {
+    init(localVerse: LocalBibleVerse, sourceType: WritingSourceType = .direct, writingContext: WritingContext = .bible, showsFullScreenCloseButton: Bool = false) {
         _currentVerse = State(initialValue: VersePayload(
             id: "local-\(localVerse.id)",
             book: localVerse.book,
@@ -37,6 +39,7 @@ struct WriteView: View {
         ))
         _writingContext = State(initialValue: writingContext)
         self.sourceType = sourceType
+        self.showsFullScreenCloseButton = showsFullScreenCloseButton
     }
 
     var body: some View {
@@ -50,6 +53,14 @@ struct WriteView: View {
         }
         .navigationTitle("필사하기")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if showsFullScreenCloseButton {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("닫기") { dismiss() }
+                        .accessibilityLabel("필사 화면 닫기")
+                }
+            }
+        }
         .background(GardenTheme.background)
         .onAppear {
             refreshTypingAnalysis()

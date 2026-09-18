@@ -308,7 +308,7 @@ struct RootTabView: View {
             }
             .tag(AppTab.verse)
             .tabItem {
-                Label("Verse", systemImage: "book")
+                Label("성경", systemImage: "book.closed.fill")
             }
 
             NavigationStack {

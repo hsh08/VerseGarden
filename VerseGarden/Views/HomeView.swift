@@ -56,7 +56,7 @@ struct HomeView: View {
 
     private var selectableWritingPlans: [ScriptureWritingPlan] {
         currentUserPlans
-            .filter { $0.status == .active || $0.status == .paused || $0.status == .completed }
+            .filter { $0.status == .active }
             .sorted { lhs, rhs in
                 if lhs.status == rhs.status {
                     return lhs.updatedAt > rhs.updatedAt
@@ -564,22 +564,33 @@ struct HomeView: View {
     @ViewBuilder
     private var featuredWritingPlanAction: some View {
         if planState.displayedPlan == nil {
-            Button {
-                showingCreatePlan = true
-            } label: {
-                GardenPrimaryButtonLabel(title: "필사 플랜 만들기", icon: "calendar.badge.plus")
+            VStack(spacing: 10) {
+                Button {
+                    showingCreatePlan = true
+                } label: {
+                    GardenPrimaryButtonLabel(title: "필사 플랜 만들기", icon: "calendar.badge.plus")
+                }
+                .buttonStyle(.plain)
+
+                if !currentUserPlans.isEmpty {
+                    NavigationLink {
+                        WritingPlanHubView()
+                    } label: {
+                        homeSecondaryPlanButton(title: "필사 플랜 관리", icon: "slider.horizontal.3")
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .buttonStyle(.plain)
         } else if planState.isTodayAssignmentCompleted || planState.displayedPlan?.status == .completed {
             VStack(spacing: 10) {
                 homeDisabledPlanButton(
                     title: planState.displayedPlan?.status == .completed ? "완료된 플랜" : "오늘 필사 완료",
                     icon: "checkmark.circle.fill"
                 )
-                featuredWritingPlanDetailLink(title: "플랜 상세 보기", icon: "list.bullet.rectangle")
+                featuredWritingPlanDetailLink(title: "필사 플랜 관리", icon: "slider.horizontal.3")
             }
         } else if planState.isPaused {
-            featuredWritingPlanDetailLink(title: "필사 플랜 상세 보기", icon: "pause.circle.fill")
+            featuredWritingPlanDetailLink(title: "필사 플랜 관리", icon: "slider.horizontal.3")
         } else if let planLaunchContext = planState.launchContext, let launchVerse = planState.launchVerse {
             VStack(spacing: 10) {
                 NavigationLink {
@@ -593,30 +604,21 @@ struct HomeView: View {
                 }
                 .buttonStyle(.plain)
 
-                featuredWritingPlanDetailLink(title: "플랜 상세 보기", icon: "list.bullet.rectangle")
+                featuredWritingPlanDetailLink(title: "필사 플랜 관리", icon: "slider.horizontal.3")
             }
         } else {
-            featuredWritingPlanDetailLink(title: "필사 플랜 상세 보기", icon: "books.vertical.fill")
+            featuredWritingPlanDetailLink(title: "필사 플랜 관리", icon: "slider.horizontal.3")
         }
     }
 
     @ViewBuilder
     private func featuredWritingPlanDetailLink(title: String, icon: String) -> some View {
-        if let displayedPlan = planState.displayedPlan {
-            NavigationLink {
-                PlanDetailView(plan: displayedPlan)
-            } label: {
-                homeSecondaryPlanButton(title: title, icon: icon)
-            }
-            .buttonStyle(.plain)
-        } else {
-            NavigationLink {
-                MyPlansView()
-            } label: {
-                homeSecondaryPlanButton(title: title, icon: icon)
-            }
-            .buttonStyle(.plain)
+        NavigationLink {
+            WritingPlanHubView()
+        } label: {
+            homeSecondaryPlanButton(title: title, icon: icon)
         }
+        .buttonStyle(.plain)
     }
 
     private func homeSecondaryPlanButton(title: String, icon: String) -> some View {
@@ -1003,7 +1005,7 @@ struct HomeView: View {
         assignments: [PlanDayAssignment]
     ) -> ScriptureWritingPlan? {
         let candidates = plans
-            .filter { $0.status == .active || $0.status == .paused || $0.status == .completed }
+            .filter { $0.status == .active }
             .sorted { lhs, rhs in
                 if lhs.status == rhs.status {
                     return lhs.updatedAt > rhs.updatedAt

@@ -21,7 +21,9 @@ struct EditWritingPlanView: View {
     @State private var startDate = Calendar.current.startOfDay(for: Date())
     @State private var totalDays = 1
     @State private var title = ""
+    @State private var selectedFolderColor: WritingPlanFolderColor = .sage
     @State private var alertMessage: String?
+    @State private var isSaving = false
     @State private var isApplyingInitialValues = false
     @State private var didInitializeForm = false
 
@@ -40,8 +42,8 @@ struct EditWritingPlanView: View {
         )
     }
 
-    private var hasCompletedAssignments: Bool {
-        ScriptureWritingPlanService.hasCompletedAssignments(for: plan, assignments: allAssignments, userID: userID)
+    private var hasWritingHistory: Bool {
+        ScriptureWritingPlanService.hasWritingHistory(for: plan, assignments: allAssignments, userID: userID)
     }
 
     private var canModifyRangeOrStartDate: Bool {
@@ -53,7 +55,11 @@ struct EditWritingPlanView: View {
     }
 
     private var canModifyDuration: Bool {
-        !plan.status.isTerminal && ScriptureWritingPlanService.canExtendDuration(for: plan)
+        !plan.status.isTerminal && ScriptureWritingPlanService.canExtendDuration(
+            for: plan,
+            assignments: allAssignments,
+            userID: userID
+        )
     }
 
     private var availableBooks: [String] {
@@ -77,19 +83,15 @@ struct EditWritingPlanView: View {
     }
 
     private var maximumDuration: Int {
-        guard hasCompletedAssignments else { return max(minimumDuration, totalVerseCount) }
-        let completedDayCount = assignments.filter { $0.state == .completed }.count
-        let completedVerseCount = assignments.filter { $0.state == .completed }.reduce(0) { $0 + $1.verseCount }
-        let remainingVerseCount = max(totalVerseCount - completedVerseCount, 0)
-        return max(minimumDuration, completedDayCount + remainingVerseCount)
+        max(minimumDuration, totalVerseCount)
     }
 
     private var lockMessage: String? {
         if plan.status.isTerminal {
             return "완료되었거나 취소된 플랜은 제목만 수정할 수 있습니다."
         }
-        if hasCompletedAssignments {
-            return "이미 진행한 기록이 있어 범위와 시작일은 수정할 수 없습니다."
+        if hasWritingHistory {
+            return "이미 필사한 기록을 보호하기 위해 범위와 일정은 수정할 수 없습니다."
         }
         return nil
     }
@@ -104,6 +106,7 @@ struct EditWritingPlanView: View {
             VStack(alignment: .leading, spacing: GardenTheme.sectionSpacing) {
                 introCard
                 titleCard
+                folderColorCard
                 rangeCard
                 scheduleCard
             }
@@ -117,8 +120,9 @@ struct EditWritingPlanView: View {
             }
 
             ToolbarItem(placement: .topBarTrailing) {
-                Button("저장") { saveChanges() }
+                Button(isSaving ? "저장 중" : "저장") { saveChanges() }
                     .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(isSaving)
             }
         }
         .alert("안내", isPresented: alertBinding) {
@@ -171,7 +175,7 @@ struct EditWritingPlanView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("필사 플랜 수정")
                     .font(.title3.bold())
-                Text(lockMessage ?? "제목은 언제든 수정할 수 있고, 진행 전에는 범위와 시작일도 바꿀 수 있습니다.")
+                Text(lockMessage ?? "제목과 폴더 색상은 언제든 수정할 수 있고, 기록 전에는 범위와 일정도 바꿀 수 있습니다.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Text("현재 플랜 기준으로 수정됩니다.")
@@ -186,6 +190,35 @@ struct EditWritingPlanView: View {
             VStack(alignment: .leading, spacing: 12) {
                 GardenSectionHeader("플랜 제목")
                 AppInputField(title: "제목", placeholder: "플랜 제목", text: $title)
+            }
+        }
+    }
+
+    private var folderColorCard: some View {
+        GardenCard {
+            VStack(alignment: .leading, spacing: 12) {
+                GardenSectionHeader("폴더 색상", subtitle: "플랜을 구분하기 쉬운 색을 고르세요.")
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5), spacing: 10) {
+                    ForEach(WritingPlanFolderColor.allCases) { folderColor in
+                        Button {
+                            selectedFolderColor = folderColor
+                        } label: {
+                            Image(systemName: selectedFolderColor == folderColor ? "checkmark" : "folder.fill")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(folderColor.checkmarkColor)
+                                .frame(width: 42, height: 36)
+                                .background(folderColor.color)
+                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(selectedFolderColor == folderColor ? AppColors.textPrimary : .clear, lineWidth: 1.5)
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(folderColor.title) 폴더 색상")
+                        .accessibilityAddTraits(selectedFolderColor == folderColor ? .isSelected : [])
+                    }
+                }
             }
         }
     }
@@ -235,7 +268,7 @@ struct EditWritingPlanView: View {
     private var scheduleCard: some View {
         GardenCard {
             VStack(alignment: .leading, spacing: 14) {
-                GardenSectionHeader("일정", subtitle: "진행 후에는 기간을 늘리는 것만 허용됩니다.")
+                GardenSectionHeader("일정", subtitle: canModifyDuration ? "기록 전에는 시작일과 전체 기간을 다시 정할 수 있습니다." : "필사 기록을 보호하기 위해 일정은 수정할 수 없습니다.")
 
                 DatePicker("시작일", selection: $startDate, displayedComponents: .date)
                     .datePickerStyle(.compact)
@@ -252,8 +285,8 @@ struct EditWritingPlanView: View {
                 }
                 .disabled(!canModifyDuration)
 
-                if hasCompletedAssignments {
-                    Text("이미 완료한 Day는 유지한 채 남은 분량만 다시 나뉩니다.")
+                if hasWritingHistory {
+                    Text("기록이 있는 플랜은 제목과 폴더 색상만 수정할 수 있습니다.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -284,6 +317,7 @@ struct EditWritingPlanView: View {
         startDate = calendar.startOfDay(for: plan.startDate)
         totalDays = plan.totalDays
         title = plan.title
+        selectedFolderColor = plan.folderColorRaw.flatMap(WritingPlanFolderColor.init(rawValue:)) ?? .sage
         clampDuration()
         didInitializeForm = true
         DispatchQueue.main.async {
@@ -329,19 +363,28 @@ struct EditWritingPlanView: View {
                 newStartChapter: startChapter,
                 newEndChapter: endChapter,
                 newTotalDays: totalDays,
+                newFolderColorRaw: selectedFolderColor.rawValue,
                 modelContext: modelContext,
                 calendar: calendar
             )
-            if let userID {
-                Task {
-                    await writingPlanSyncCoordinator.syncPlanAndAssignments(
-                        localPlanID: plan.id,
-                        userID: userID,
-                        modelContext: modelContext
-                    )
+            guard let userID else {
+                dismiss()
+                return
+            }
+            isSaving = true
+            Task {
+                let didSync = await writingPlanSyncCoordinator.syncPlanAndAssignments(
+                    localPlanID: plan.id,
+                    userID: userID,
+                    modelContext: modelContext
+                )
+                isSaving = false
+                if didSync {
+                    dismiss()
+                } else {
+                    alertMessage = "변경 내용은 기기에 저장됐지만 동기화하지 못했어요. 잠시 후 다시 시도해주세요."
                 }
             }
-            dismiss()
         } catch {
             alertMessage = error.localizedDescription
         }

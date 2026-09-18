@@ -7,12 +7,13 @@ struct PlanDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var authViewModel: AuthViewModel
     @EnvironmentObject private var writingPlanSyncCoordinator: WritingPlanSyncCoordinator
+    @EnvironmentObject private var writingPlanSelectionStore: WritingPlanSelectionStore
     @Query(sort: \PlanDayAssignment.dayIndex, order: .forward) private var allAssignments: [PlanDayAssignment]
 
     let plan: ScriptureWritingPlan
 
     @State private var showingEdit = false
-    @State private var showingDeleteAlert = false
+    @State private var destructiveAction: PlanDestructiveAction?
     @State private var alertMessage: String?
 
     private var userID: String? { authViewModel.currentUser?.uid }
@@ -23,6 +24,10 @@ struct PlanDetailView: View {
 
     private var counts: (completed: Int, missed: Int, pending: Int) {
         ScriptureWritingPlanService.assignmentCounts(for: plan, assignments: allAssignments, userID: userID)
+    }
+
+    private var hasWritingHistory: Bool {
+        ScriptureWritingPlanService.hasWritingHistory(for: plan, assignments: allAssignments, userID: userID)
     }
 
     var body: some View {
@@ -36,7 +41,20 @@ struct PlanDetailView: View {
         .navigationTitle("플랜 상세")
         .background(GardenTheme.background)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if !plan.status.isTerminal {
+                    Button {
+                        showingEdit = true
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(GardenTheme.primary)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("플랜 수정")
+                }
+
                 Menu {
                     if plan.status == .active {
                         Button {
@@ -48,22 +66,22 @@ struct PlanDetailView: View {
                         Button {
                             resumePlan()
                         } label: {
-                            Label("재개하기", systemImage: "play.circle")
+                            Label("재개", systemImage: "play.circle")
                         }
                     }
 
-                    if plan.status != .cancelled {
-                        Button {
-                            showingEdit = true
+                    if !plan.status.isTerminal && hasWritingHistory {
+                        Button(role: .destructive) {
+                            destructiveAction = .end
                         } label: {
-                            Label("플랜 수정", systemImage: "square.and.pencil")
+                            Label("플랜 종료", systemImage: "stop.circle")
                         }
-                    }
-
-                    Button(role: .destructive) {
-                        showingDeleteAlert = true
-                    } label: {
-                        Label("플랜 삭제", systemImage: "trash")
+                    } else {
+                        Button(role: .destructive) {
+                            destructiveAction = .delete
+                        } label: {
+                            Label("플랜 삭제", systemImage: "trash")
+                        }
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -79,13 +97,13 @@ struct PlanDetailView: View {
                 EditWritingPlanView(plan: plan)
             }
         }
-        .alert("플랜을 삭제할까요?", isPresented: $showingDeleteAlert) {
+        .alert(destructiveAction?.title ?? "", isPresented: destructiveAlertBinding) {
             Button("취소", role: .cancel) {}
-            Button("삭제", role: .destructive) {
-                deletePlan()
+            Button(destructiveAction?.confirmTitle ?? "확인", role: .destructive) {
+                performDestructiveAction()
             }
         } message: {
-            Text("플랜과 일별 할당은 삭제되지만, 이미 작성한 말씀 기록은 그대로 남습니다.")
+            Text(destructiveAction?.message ?? "")
         }
         .alert("안내", isPresented: alertBinding) {
             Button("확인", role: .cancel) {}
@@ -172,39 +190,75 @@ struct PlanDetailView: View {
     }
 
     private func assignmentCard(_ assignment: PlanDayAssignment, interactive: Bool) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Text("Day \(assignment.dayIndex)")
-                        .font(.headline)
-                    stateBadge(for: assignment.state)
-                }
+        VStack(alignment: .leading, spacing: 7) {
+            assignmentHeader(assignment, interactive: interactive)
 
-                Text(assignment.date.formatted(.dateTime.month().day().weekday(.abbreviated)))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(ScriptureWritingPlanService.rangeText(for: assignment))
                     .font(.subheadline)
                     .foregroundStyle(.primary)
-
+                    .lineLimit(2)
+                    .layoutPriority(1)
+                Spacer(minLength: 8)
                 Text("\(assignment.verseCount)절")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(AppColors.cardTint)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
 
-            Spacer()
+    @ViewBuilder
+    private func assignmentHeader(_ assignment: PlanDayAssignment, interactive: Bool) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                assignmentIdentity(assignment)
+                    .layoutPriority(1)
+                Spacer(minLength: 8)
+                Text(assignmentDateText(assignment.date))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                assignmentChevron(isInteractive: interactive)
+            }
 
-            if interactive {
-                Image(systemName: "chevron.right")
-                    .font(.subheadline.weight(.semibold))
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    assignmentIdentity(assignment)
+                        .layoutPriority(1)
+                    Spacer(minLength: 8)
+                    assignmentChevron(isInteractive: interactive)
+                }
+                Text(assignmentDateText(assignment.date))
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(AppColors.cardTint)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private func assignmentIdentity(_ assignment: PlanDayAssignment) -> some View {
+        HStack(spacing: 8) {
+            Text("Day \(assignment.dayIndex)")
+                .font(.headline)
+            stateBadge(for: assignment.state)
+        }
+    }
+
+    @ViewBuilder
+    private func assignmentChevron(isInteractive: Bool) -> some View {
+        if isInteractive {
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func assignmentDateText(_ date: Date) -> String {
+        date.formatted(.dateTime.month().day().locale(Locale(identifier: "ko_KR")))
     }
 
     private func statCard(title: String, value: String) -> some View {
@@ -260,16 +314,28 @@ struct PlanDetailView: View {
         )
     }
 
+    private var destructiveAlertBinding: Binding<Bool> {
+        Binding(
+            get: { destructiveAction != nil },
+            set: { isPresented in
+                if !isPresented { destructiveAction = nil }
+            }
+        )
+    }
+
     private func pausePlan() {
         do {
             try ScriptureWritingPlanService.pausePlan(plan, modelContext: modelContext)
             if let userID {
                 Task {
-                    await writingPlanSyncCoordinator.updatePlanIfNeeded(
+                    let didSync = await writingPlanSyncCoordinator.updatePlanIfNeeded(
                         localPlanID: plan.id,
                         userID: userID,
                         modelContext: modelContext
                     )
+                    if !didSync {
+                        alertMessage = "변경 내용은 기기에 저장됐지만 동기화하지 못했어요. 잠시 후 다시 시도해주세요."
+                    }
                 }
             }
         } catch {
@@ -286,11 +352,14 @@ struct PlanDetailView: View {
             )
             if let userID {
                 Task {
-                    await writingPlanSyncCoordinator.updatePlanIfNeeded(
+                    let didSync = await writingPlanSyncCoordinator.updatePlanIfNeeded(
                         localPlanID: plan.id,
                         userID: userID,
                         modelContext: modelContext
                     )
+                    if !didSync {
+                        alertMessage = "변경 내용은 기기에 저장됐지만 동기화하지 못했어요. 잠시 후 다시 시도해주세요."
+                    }
                 }
             }
         } catch {
@@ -298,15 +367,77 @@ struct PlanDetailView: View {
         }
     }
 
+    private func performDestructiveAction() {
+        guard let destructiveAction else { return }
+        switch destructiveAction {
+        case .end:
+            endPlan()
+        case .delete:
+            deletePlan()
+        }
+    }
+
+    private func endPlan() {
+        do {
+            try ScriptureWritingPlanService.endPlan(plan, modelContext: modelContext)
+            writingPlanSelectionStore.selectPlan(nil)
+            if let userID {
+                Task {
+                    let didSync = await writingPlanSyncCoordinator.updatePlanIfNeeded(
+                        localPlanID: plan.id,
+                        userID: userID,
+                        modelContext: modelContext
+                    )
+                    if !didSync {
+                        alertMessage = "플랜은 종료됐지만 동기화하지 못했어요. 잠시 후 다시 시도해주세요."
+                    }
+                }
+            }
+        } catch {
+            alertMessage = "플랜을 종료하지 못했어요. 잠시 후 다시 시도해주세요."
+        }
+    }
+
     private func deletePlan() {
         guard let userID else { return }
         Task {
-            await writingPlanSyncCoordinator.deletePlanIfNeeded(
+            let didDelete = await writingPlanSyncCoordinator.deletePlanIfNeeded(
                 localPlanID: plan.id,
                 userID: userID,
                 modelContext: modelContext
             )
-            dismiss()
+            if didDelete {
+                writingPlanSelectionStore.selectPlan(nil)
+                dismiss()
+            } else {
+                alertMessage = "플랜을 삭제하지 못했어요. 잠시 후 다시 시도해주세요."
+            }
+        }
+    }
+}
+
+private enum PlanDestructiveAction {
+    case end
+    case delete
+
+    var title: String {
+        switch self {
+        case .end: return "이 플랜을 종료할까요?"
+        case .delete: return "필사 플랜을 삭제할까요?"
+        }
+    }
+
+    var confirmTitle: String {
+        switch self {
+        case .end: return "종료"
+        case .delete: return "삭제"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .end: return "이미 완료한 필사 기록은 유지되며, 남은 일정은 종료됩니다."
+        case .delete: return "플랜 일정은 삭제되지만, 이미 작성한 말씀 기록은 그대로 남습니다."
         }
     }
 }
