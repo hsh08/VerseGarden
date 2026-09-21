@@ -613,12 +613,14 @@ struct HomeView: View {
 
     @ViewBuilder
     private func featuredWritingPlanDetailLink(title: String, icon: String) -> some View {
-        NavigationLink {
-            WritingPlanHubView()
-        } label: {
-            homeSecondaryPlanButton(title: title, icon: icon)
+        if let displayedPlan = planState.displayedPlan {
+            NavigationLink {
+                PlanDetailView(plan: displayedPlan)
+            } label: {
+                homeSecondaryPlanButton(title: title, icon: icon)
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 
     private func homeSecondaryPlanButton(title: String, icon: String) -> some View {
