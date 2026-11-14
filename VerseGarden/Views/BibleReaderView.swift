@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct BibleReadingLocation: Hashable {
     let book: String
@@ -80,6 +81,9 @@ private struct BiblePaperSurface: View {
 struct BibleReaderView: View {
     @EnvironmentObject private var likedVerseStore: LikedVerseStore
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .title) private var chapterTitleSize: CGFloat = 31
+
     private let service: BibleDataService
     private let previewLikedVerseIDs: Set<String>
     @State private var book: String
@@ -143,29 +147,12 @@ struct BibleReaderView: View {
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: AppSpacing.xsmall) {
-                    Button {
-                        presentedSheet = .search
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                            .frame(width: 42, height: 42)
-                    }
-                    .accessibilityLabel("성경 검색")
-
-                    NavigationLink {
-                        WritingPlanHubView()
-                    } label: {
-                        Image(systemName: "square.and.pencil")
-                            .frame(width: 42, height: 42)
-                    }
-                    .accessibilityLabel("필사 플랜")
-                }
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(AppColors.textSecondary)
-                .padding(2)
-            }
+        .toolbar(.hidden, for: .navigationBar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            readerActions
+                .padding(.horizontal, AppSpacing.screenHorizontal)
+                .padding(.vertical, AppSpacing.xsmall)
+                .background(AppColors.scripturePaper)
         }
         .sheet(item: $presentedSheet) { sheet in
             switch sheet {
@@ -180,7 +167,7 @@ struct BibleReaderView: View {
                         open(verse)
                     }
                 }
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.large])
             }
         }
         .sheet(item: $selectedVerse, onDismiss: presentPendingWriting) { verse in
@@ -208,42 +195,71 @@ struct BibleReaderView: View {
         "bible-reader-top-\(book)-\(chapter)"
     }
 
+    private var readerActions: some View {
+        let stacked = dynamicTypeSize.isAccessibilitySize
+        let layout = stacked
+            ? AnyLayout(VStackLayout(spacing: AppSpacing.xsmall))
+            : AnyLayout(HStackLayout(spacing: AppSpacing.small))
+
+        return layout {
+            Button {
+                presentedSheet = .search
+            } label: {
+                actionLabel("성경 검색", icon: "magnifyingglass", expanded: true)
+            }
+
+            NavigationLink {
+                WritingPlanHubView()
+            } label: {
+                actionLabel("필사 계획", icon: "calendar.badge.plus", expanded: stacked)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func actionLabel(_ title: String, icon: String, expanded: Bool) -> some View {
+        Label(title, systemImage: icon)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(AppColors.gardenDeep)
+            .padding(.horizontal, AppSpacing.medium)
+            .padding(.vertical, AppSpacing.xsmall)
+            .frame(maxWidth: expanded ? .infinity : nil, minHeight: 44)
+            .background(AppColors.surface, in: Capsule())
+            .overlay { Capsule().strokeBorder(AppColors.scriptureAccent.opacity(0.35)) }
+            .contentShape(Capsule())
+    }
+
     private var readerHeader: some View {
         Button {
             presentedSheet = .selector
         } label: {
             VStack(alignment: .leading, spacing: AppSpacing.small) {
-                Text(book)
-                    .font(.title3.weight(.medium))
-                    .foregroundStyle(AppColors.scriptureAccent)
-
                 HStack(alignment: .firstTextBaseline, spacing: AppSpacing.small) {
-                    Text("\(chapter)장")
-                        .font(.largeTitle.weight(.semibold))
+                    Text("\(book) \(chapter)장")
+                        .font(.system(size: chapterTitleSize, weight: .semibold))
                         .foregroundStyle(AppColors.textPrimary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                     Image(systemName: "chevron.down")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(AppColors.scriptureAccent)
                 }
 
-                HStack(spacing: AppSpacing.xsmall) {
-                    Text("\(BibleDataService.translationSourceTitle) · \(testamentTitle)")
-                    Spacer(minLength: AppSpacing.small)
-                    Text("책·장 선택")
-                }
-                .font(.caption.weight(.medium))
-                .foregroundStyle(AppColors.textSecondary)
+                Text("\(BibleDataService.translationSourceTitle) · \(testamentTitle)")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(AppColors.textSecondary)
 
                 Rectangle()
                     .fill(AppColors.scriptureAccent.opacity(0.3))
                     .frame(height: 1)
                     .padding(.top, AppSpacing.xsmall)
             }
-            .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(GardenAccentButtonStyle())
         .accessibilityLabel("현재 본문 \(book) \(chapter)장. 책과 장 선택")
+        .accessibilityValue("\(BibleDataService.translationSourceTitle), \(testamentTitle)")
         .accessibilityHint("두 번 탭하여 성경 책과 장을 변경합니다")
     }
 
@@ -279,52 +295,30 @@ struct BibleReaderView: View {
     private func verseRow(_ verse: LocalBibleVerse) -> some View {
         let isLiked = previewLikedVerseIDs.contains(verse.id) || likedVerseStore.isLiked(verse)
 
-        return scriptureText(for: verse)
-            .lineSpacing(AppTypography.scriptureLineSpacing)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.trailing, isLiked ? 24 : 0)
-            .overlay(alignment: .topTrailing) {
-                if isLiked {
-                Image(systemName: "heart.fill")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(AppColors.scriptureAccent.opacity(0.88))
-                        .padding(.top, 2)
-                    .accessibilityHidden(true)
+        return BiblePassageLabel(verse: verse, isLiked: isLiked)
+            .padding(.vertical, 5)
+            .padding(.horizontal, AppSpacing.xsmall)
+            .background {
+                RoundedRectangle(cornerRadius: AppRadius.small, style: .continuous)
+                    .fill(
+                        transientHighlightVerseID == verse.id
+                            ? AppColors.scriptureHighlight.opacity(transientHighlightOpacity)
+                            : .clear
+                    )
+            }
+            .overlay(alignment: .leading) {
+                if transientHighlightVerseID == verse.id {
+                    Capsule()
+                        .fill(AppColors.scriptureAccent.opacity(transientHighlightOpacity))
+                        .frame(width: 3, height: 28)
+                        .padding(.leading, 2)
                 }
             }
-        .padding(.vertical, 5)
-        .padding(.horizontal, AppSpacing.xsmall)
-        .background {
-            RoundedRectangle(cornerRadius: AppRadius.small, style: .continuous)
-                .fill(
-                    transientHighlightVerseID == verse.id
-                        ? AppColors.scriptureHighlight.opacity(transientHighlightOpacity)
-                        : .clear
-                )
-        }
-        .overlay(alignment: .leading) {
-            if transientHighlightVerseID == verse.id {
-                Capsule()
-                    .fill(AppColors.scriptureAccent.opacity(transientHighlightOpacity))
-                    .frame(width: 3, height: 28)
-                    .padding(.leading, 2)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(verse.referenceText). \(verse.text)\(isLiked ? ". 저장됨." : "")")
-        .accessibilityHint("두 번 탭하여 말씀 상세를 엽니다")
-    }
-
-    private func scriptureText(for verse: LocalBibleVerse) -> Text {
-        let verseNumber = Text("\(verse.verse)\u{2002}")
-            .font(AppTypography.scriptureVerseNumber)
-            .foregroundColor(AppColors.textTertiary)
-        let verseBody = Text(verse.text)
-            .font(AppTypography.scripture)
-            .foregroundColor(AppColors.textPrimary)
-        return Text("\(verseNumber)\(verseBody)")
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(verse.referenceText). \(verse.text)\(isLiked ? ". 저장됨." : "")")
+            .accessibilityHint("두 번 탭하여 말씀 상세를 엽니다")
     }
 
     private var chapterNavigation: some View {
@@ -535,6 +529,59 @@ struct BibleReaderView: View {
     }
 }
 
+/// The reader wraps Hangul at syllable boundaries without adding break characters to the verse.
+private struct BiblePassageLabel: UIViewRepresentable {
+    let verse: LocalBibleVerse
+    let isLiked: Bool
+
+    func makeUIView(context: Context) -> UILabel {
+        let label = UILabel()
+        label.numberOfLines = 0
+        label.lineBreakMode = .byCharWrapping
+        label.lineBreakStrategy = []
+        label.isUserInteractionEnabled = false
+        label.isAccessibilityElement = false // The enclosing verse button provides its reference and saved state.
+        return label
+    }
+
+    func updateUIView(_ label: UILabel, context: Context) {
+        let traits = context.environment.dynamicTypeSize
+        let metrics = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(traits))
+        let numberSize = UIFont.preferredFont(forTextStyle: .body, compatibleWith: metrics).pointSize
+        let passage = NSMutableAttributedString(string: "\(verse.verse)\u{2002}", attributes: [
+            .font: UIFont.systemFont(ofSize: numberSize, weight: .medium),
+            .foregroundColor: UIColor(AppColors.textSecondary)
+        ])
+        passage.append(NSAttributedString(string: verse.text, attributes: [
+            .font: UIFont.preferredFont(forTextStyle: .title3, compatibleWith: metrics),
+            .foregroundColor: UIColor(AppColors.textPrimary)
+        ]))
+
+        if isLiked {
+            let font = UIFont.preferredFont(forTextStyle: .footnote, compatibleWith: metrics)
+            let config = UIImage.SymbolConfiguration(pointSize: font.pointSize, weight: .semibold)
+            let heart = NSTextAttachment()
+            heart.image = UIImage(systemName: "heart.fill", withConfiguration: config)?
+                .withTintColor(UIColor(AppColors.scriptureAccent.opacity(0.88)), renderingMode: .alwaysOriginal)
+            passage.append(NSAttributedString(string: "\u{00A0}", attributes: [.font: font]))
+            passage.append(NSAttributedString(attachment: heart))
+        }
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byCharWrapping
+        paragraph.lineBreakStrategy = []
+        paragraph.lineSpacing = AppTypography.scriptureLineSpacing
+        passage.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: passage.length))
+        label.attributedText = passage
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UILabel, context: Context) -> CGSize? {
+        guard let width = proposal.width, width.isFinite, width > 0 else { return nil }
+        let size = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: ceil(size.height))
+    }
+}
+
 private enum ChapterDirection {
     case previous
     case next
@@ -670,24 +717,8 @@ private struct BibleReaderTestamentPalette {
 }
 
 private enum BibleReaderBookAbbreviations {
-    static let values: [String: String] = [
-        "창세기": "창", "출애굽기": "출", "레위기": "레", "민수기": "민", "신명기": "신",
-        "여호수아": "수", "사사기": "삿", "룻기": "룻", "사무엘상": "삼상", "사무엘하": "삼하",
-        "열왕기상": "왕상", "열왕기하": "왕하", "역대상": "대상", "역대하": "대하", "에스라": "스",
-        "느헤미야": "느", "에스더": "에", "욥기": "욥", "시편": "시", "잠언": "잠", "전도서": "전", "아가": "아",
-        "이사야": "사", "예레미야": "렘", "예레미야애가": "애", "에스겔": "겔", "다니엘": "단",
-        "호세아": "호", "요엘": "욜", "아모스": "암", "오바댜": "옵", "요나": "욘", "미가": "미", "나훔": "나",
-        "하박국": "합", "스바냐": "습", "학개": "학", "스가랴": "슥", "말라기": "말",
-        "마태복음": "마", "마가복음": "막", "누가복음": "눅", "요한복음": "요", "사도행전": "행",
-        "로마서": "롬", "고린도전서": "고전", "고린도후서": "고후", "갈라디아서": "갈", "에베소서": "엡",
-        "빌립보서": "빌", "골로새서": "골", "데살로니가전서": "살전", "데살로니가후서": "살후",
-        "디모데전서": "딤전", "디모데후서": "딤후", "디도서": "딛", "빌레몬서": "몬",
-        "히브리서": "히", "야고보서": "약", "베드로전서": "벧전", "베드로후서": "벧후",
-        "요한일서": "요일", "요한이서": "요이", "요한삼서": "요삼", "유다서": "유", "요한계시록": "계"
-    ]
-
     static func abbreviation(for book: String) -> String {
-        guard let abbreviation = values[book] else {
+        guard let abbreviation = LocalBibleVerse.bookAbbreviations[book] else {
             preconditionFailure("Missing Bible book abbreviation metadata for \(book)")
         }
         return abbreviation
@@ -696,7 +727,7 @@ private enum BibleReaderBookAbbreviations {
     static func validate(canonicalBooks: [String]) {
         let canonicalSet = Set(canonicalBooks)
         precondition(canonicalSet.count == 66, "Expected 66 canonical Bible books")
-        precondition(Set(values.keys) == canonicalSet, "Bible book abbreviation metadata must match canonical book names")
+        precondition(Set(LocalBibleVerse.bookAbbreviations.keys) == canonicalSet, "Bible book abbreviation metadata must match canonical book names")
         let categorySet = Set(BibleTestament.allCases.flatMap { $0.readerCategories.flatMap(\.bookNames) })
         precondition(categorySet == canonicalSet, "Bible book categories must match canonical book names")
     }
@@ -960,6 +991,7 @@ private struct BibleReaderSelectorView: View {
 private struct BibleReaderSearchView: View {
     @Environment(\.dismiss) private var dismiss
 
+    @FocusState private var searchFocused: Bool
     private let service: BibleDataService
     private let onSelectVerse: (LocalBibleVerse) -> Void
     @State private var query = ""
@@ -971,20 +1003,34 @@ private struct BibleReaderSearchView: View {
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: AppSpacing.small) {
-                TextField("본문, 책 이름, 장절 검색", text: $query)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .padding(AppSpacing.editorPadding)
-                    .background(AppColors.surfaceSecondary)
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous))
-
-                searchResults
+        VStack(alignment: .leading, spacing: AppSpacing.small) {
+            TextField(
+                "본문, 책 이름, 장절 검색",
+                text: $query,
+                prompt: Text("본문, 책 이름, 장절 검색").foregroundColor(AppColors.textSecondary)
+            )
+            .focused($searchFocused)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .foregroundStyle(AppColors.textPrimary)
+            .padding(AppSpacing.editorPadding)
+            .background(AppColors.surface, in: RoundedRectangle(cornerRadius: AppRadius.control))
+            .overlay {
+                RoundedRectangle(cornerRadius: AppRadius.control)
+                    .strokeBorder(AppColors.scriptureAccent.opacity(0.45))
+                    .allowsHitTesting(false)
             }
-            .padding(AppSpacing.screenHorizontal)
-            .padding(.vertical, AppSpacing.large)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: AppSpacing.small) {
+                    searchResults
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollDismissesKeyboard(.interactively)
         }
+        .padding(.horizontal, AppSpacing.screenHorizontal)
+        .padding(.top, AppSpacing.xsmall)
         .navigationTitle("성경 검색")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -994,6 +1040,7 @@ private struct BibleReaderSearchView: View {
         }
         .background(BiblePaperSurface())
         .task {
+            searchFocused = true
             search.prepare(verses: service.loadAllVerses())
         }
         .onChange(of: query) { _, newQuery in
@@ -1007,7 +1054,7 @@ private struct BibleReaderSearchView: View {
             Text("본문, 성경 책 이름, 장절로 말씀을 찾을 수 있어요.")
                 .font(AppTypography.description)
                 .foregroundStyle(AppColors.textSecondary)
-                .padding(.top, AppSpacing.medium)
+                .padding(.top, AppSpacing.xsmall)
         } else if search.isSearching {
             HStack(spacing: AppSpacing.small) {
                 ProgressView()
@@ -1015,7 +1062,7 @@ private struct BibleReaderSearchView: View {
             }
             .font(AppTypography.description)
             .foregroundStyle(AppColors.textSecondary)
-            .padding(.top, AppSpacing.medium)
+            .padding(.top, AppSpacing.xsmall)
         } else if search.results.isEmpty {
             VGEmptyStateView(
                 icon: "magnifyingglass",

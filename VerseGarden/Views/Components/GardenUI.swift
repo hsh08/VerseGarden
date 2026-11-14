@@ -100,7 +100,7 @@ enum AppTypography {
 
     // Korean long-form reading is clearest in the platform's native sans treatment.
     static let scripture = Font.body.weight(.regular)
-    static let scriptureVerseNumber = Font.caption2.weight(.medium)
+    static let scriptureVerseNumber = Font.body.weight(.medium)
     static let scriptureReference = Font.subheadline.weight(.semibold)
     static let scriptureLineSpacing: CGFloat = 7
 }

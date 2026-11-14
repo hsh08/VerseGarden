@@ -15,6 +15,7 @@ struct BibleSearchIndex: Sendable {
 
     private let entries: [Entry]
     private let entriesByBook: [String: [Entry]]
+    private let referenceBooksByAbbreviation: [String: String]
     private let bookAliases: [String: [String]]
 
     nonisolated init(verses: [LocalBibleVerse]) {
@@ -42,6 +43,12 @@ struct BibleSearchIndex: Sendable {
                 aliases[String(initial), default: []].insert(book)
             }
         }
+        var referenceBooksByAbbreviation = [String: String]()
+        for (book, abbreviation) in LocalBibleVerse.bookAbbreviations where entriesByBook[book] != nil {
+            aliases[abbreviation, default: []].insert(book)
+            referenceBooksByAbbreviation[abbreviation] = book
+        }
+        self.referenceBooksByAbbreviation = referenceBooksByAbbreviation
         self.bookAliases = aliases.mapValues { $0.sorted { $0.count > $1.count } }
     }
 
@@ -74,7 +81,9 @@ struct BibleSearchIndex: Sendable {
         let suffix = String(compactQuery.dropFirst(alias.count))
         guard suffix.isEmpty || suffix.first?.isNumber == true else { return nil }
 
-        let candidateEntries = books.flatMap { entriesByBook[$0] ?? [] }
+        // A bare initial browses all matching books. In a numbered reference it is a book abbreviation.
+        let referenceBooks = suffix.isEmpty ? books : referenceBooksByAbbreviation[alias].map { [$0] } ?? books
+        let candidateEntries = referenceBooks.flatMap { entriesByBook[$0] ?? [] }
         guard !suffix.isEmpty else {
             return limitedResult(candidateEntries.lazy, limit: limit)
         }

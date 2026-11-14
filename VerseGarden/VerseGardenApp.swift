@@ -316,7 +316,7 @@ struct RootTabView: View {
             }
             .tag(AppTab.prayer)
             .tabItem {
-                Label("Prayer", systemImage: "hands.sparkles")
+                Label("기도", systemImage: "hands.sparkles")
             }
 
             NavigationStack {
@@ -324,7 +324,7 @@ struct RootTabView: View {
             }
             .tag(AppTab.home)
             .tabItem {
-                Label("Home", systemImage: "house.fill")
+                Label("홈", systemImage: "house.fill")
             }
 
             NavigationStack {
@@ -332,7 +332,7 @@ struct RootTabView: View {
             }
             .tag(AppTab.garden)
             .tabItem {
-                Label("Garden", systemImage: "square.grid.3x3")
+                Label("정원", systemImage: "square.grid.3x3")
             }
 
             NavigationStack {
@@ -340,7 +340,7 @@ struct RootTabView: View {
             }
             .tag(AppTab.profile)
             .tabItem {
-                Label("Profile", systemImage: "person")
+                Label("프로필", systemImage: "person")
             }
         }
         .tint(GardenTheme.secondary)
